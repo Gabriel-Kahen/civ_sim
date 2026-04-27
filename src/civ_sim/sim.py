@@ -494,6 +494,9 @@ class Simulation:
         ground_resources = self.world.ground_resource_vector(agent.x, agent.y)
         can_carry_more = agent.carried_amount < self.controller.carry_capacity(agent.genome)
         carrying_parts = agent.carried_resource == ResourceType.PARTS.value and agent.carried_amount >= 1.0
+        accessible_inventory = self._accessible_inventory_structures(agent)
+        has_inventory = bool(accessible_inventory)
+        has_withdrawable_inventory = any(structure.inventory is not None and structure.inventory.total() > 0.0 for structure in accessible_inventory)
 
         has_build_site = any(self._can_build_on(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS)
         has_damaged_neighbor = any(
@@ -509,8 +512,8 @@ class Simulation:
             ActionType.HARVEST: harvestable and can_carry_more,
             ActionType.PICKUP: bool(np.any(ground_resources > 0.0)) and can_carry_more,
             ActionType.DROP: agent.carried_resource is not None and agent.carried_amount > 0.0,
-            ActionType.DEPOSIT: structure is not None and structure.inventory is not None and agent.carried_resource is not None,
-            ActionType.WITHDRAW: structure is not None and structure.inventory is not None and can_carry_more and structure.inventory.total() > 0.0,
+            ActionType.DEPOSIT: has_inventory and agent.carried_resource is not None,
+            ActionType.WITHDRAW: has_withdrawable_inventory and can_carry_more,
             ActionType.BUILD_PATH: carrying_parts and any(
                 self._can_build_path(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
@@ -585,6 +588,16 @@ class Simulation:
                     mask[direction] = self._can_build_on(tx, ty)
             return mask
 
+        if action in {ActionType.DEPOSIT, ActionType.WITHDRAW}:
+            mask = {}
+            for direction, (dx, dy) in DIRECTION_VECTORS.items():
+                structure = self.world.get_structure(agent.x + dx, agent.y + dy)
+                has_inventory = structure is not None and structure.inventory is not None
+                if action == ActionType.WITHDRAW:
+                    has_inventory = has_inventory and structure.inventory.total() > 0.0
+                mask[direction] = has_inventory
+            return mask
+
         return {
             Direction.CENTER: True,
             Direction.NORTH: False,
@@ -655,7 +668,7 @@ class Simulation:
                 agent.carried_amount = 0.0
                 agent.carried_resource = None
         elif action == ActionType.DEPOSIT and agent.carried_resource is not None:
-            structure = self.world.get_structure(agent.x, agent.y)
+            structure = self._inventory_structure_for_direction(agent, direction)
             if structure is not None and structure.inventory is not None:
                 amount = min(self.config.deposit_amount, agent.carried_amount)
                 structure.inventory.add(ResourceType(agent.carried_resource), amount)
@@ -666,7 +679,7 @@ class Simulation:
                     agent.carried_amount = 0.0
                     agent.carried_resource = None
         elif action == ActionType.WITHDRAW:
-            structure = self.world.get_structure(agent.x, agent.y)
+            structure = self._inventory_structure_for_direction(agent, direction)
             if structure is not None and structure.inventory is not None:
                 resource = self._choose_withdraw_resource(agent, structure.inventory)
                 if resource is not None and agent.carried_resource in (None, resource.value):
@@ -905,6 +918,21 @@ class Simulation:
         if inventory.stone > 0.0:
             return ResourceType.STONE
         return None
+
+    def _accessible_inventory_structures(self, agent: Agent) -> list:
+        structures = []
+        for dx, dy in ((0, 0), *CARDINAL_OFFSETS):
+            structure = self.world.get_structure(agent.x + dx, agent.y + dy)
+            if structure is not None and structure.inventory is not None:
+                structures.append(structure)
+        return structures
+
+    def _inventory_structure_for_direction(self, agent: Agent, direction: Direction):
+        dx, dy = DIRECTION_VECTORS[direction]
+        structure = self.world.get_structure(agent.x + dx, agent.y + dy)
+        if structure is None or structure.inventory is None:
+            return None
+        return structure
 
     def _home_structure_for_agent(self, agent: Agent):
         if agent.home_id is None:
