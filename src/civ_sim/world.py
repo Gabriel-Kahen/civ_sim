@@ -172,8 +172,8 @@ class World:
         chunk.traffic[local_y, local_x] += 1.0
         chunk.lineage_map[local_y, local_x] = lineage_id
 
-    def ground_resource_vector(self, x: int, y: int) -> np.ndarray:
-        chunk = self.get_chunk_for_tile(x, y, activate=True)
+    def ground_resource_vector(self, x: int, y: int, activate: bool = False) -> np.ndarray:
+        chunk = self.get_chunk_for_tile(x, y, activate=activate)
         local_x, local_y = self.local_coords(x, y)
         return chunk.ground_resources[local_y, local_x]
 
@@ -207,6 +207,18 @@ class World:
                     ),
                     structure,
                 )
+
+    def iter_loaded_structures(self) -> Iterable[tuple[tuple[int, int], Structure]]:
+        for chunks in (self.active_chunks, self.dormant_chunks):
+            for (chunk_x, chunk_y), chunk in chunks.items():
+                for structure in chunk.structures.values():
+                    yield (
+                        (
+                            chunk_x * self.config.chunk_size + structure.x,
+                            chunk_y * self.config.chunk_size + structure.y,
+                        ),
+                        structure,
+                    )
 
     def recompute_influence(self, agent_positions: set[tuple[int, int]]) -> dict[str, int]:
         self.influence_tiles = defaultdict(float)

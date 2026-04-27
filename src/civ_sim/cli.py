@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 from pathlib import Path
 
 import pygame
@@ -103,32 +102,25 @@ def run_experiment(args) -> None:
     output_dir = args.output
     frames_dir = output_dir / "frames"
     maps_dir = output_dir / "maps"
-    video_frames_dir = output_dir / ".video_frames"
     video_path = output_dir / "animation.mp4"
     frames_dir.mkdir(parents=True, exist_ok=True)
     maps_dir.mkdir(parents=True, exist_ok=True)
-    video_frames_dir.mkdir(parents=True, exist_ok=True)
-    video_bounds = renderer.fixed_video_bounds()
-    video_size = renderer.fixed_video_size()
+    video_writer = renderer.open_video_writer(video_path, fps=20)
 
-    while simulation.current_tick < args.ticks:
-        simulation.step()
-        video_frame_path = video_frames_dir / f"video_frame_{simulation.current_tick:06d}.png"
-        renderer.export_frame(simulation, video_frame_path, bounds=video_bounds, output_size=video_size)
-        if simulation.current_tick % args.export_every == 0:
-            renderer.export_frame(
-                simulation,
-                frames_dir / f"frame_{simulation.current_tick:06d}.png",
-                bounds=video_bounds,
-                output_size=video_size,
-            )
+    try:
+        while simulation.current_tick < args.ticks:
+            simulation.step()
+            frame = renderer.render_video_frame(simulation)
+            video_writer.write(frame)
+            if simulation.current_tick % args.export_every == 0:
+                pygame.image.save(frame, frames_dir / f"frame_{simulation.current_tick:06d}.png")
+    finally:
+        video_writer.close()
 
-    renderer.export_video(video_frames_dir, video_path, fps=20)
     renderer.export_maps(simulation, maps_dir)
     export_metrics(simulation, output_dir)
     save_simulation(simulation, args.save)
     renderer.shutdown()
-    shutil.rmtree(video_frames_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

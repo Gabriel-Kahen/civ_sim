@@ -136,6 +136,7 @@ class ControllerRuntime:
         self.hidden_size = config.hidden_size
         self.action_size = len(ActionType)
         self.direction_size = len(Direction)
+        self._param_cache: dict[int, tuple[AgentGenome, dict[str, torch.Tensor]]] = {}
 
     def create_random_genome(self) -> AgentGenome:
         hidden_size = self.hidden_size
@@ -192,7 +193,7 @@ class ControllerRuntime:
         return AgentGenome(hidden_size=genome.hidden_size, weights=weights, traits=traits)
 
     def forward(self, genome: AgentGenome, observation: torch.Tensor, hidden_state: torch.Tensor) -> ControllerOutput:
-        params = {key: self._tensor(value) for key, value in genome.weights.items()}
+        params = self._params_for_genome(genome)
         x = observation
         h = hidden_state
         gate_x = F.linear(x, params["gru_weight_ih"], params["gru_bias_ih"])
@@ -225,6 +226,15 @@ class ControllerRuntime:
 
     def _tensor(self, values: list) -> torch.Tensor:
         return torch.tensor(values, dtype=torch.float32)
+
+    def _params_for_genome(self, genome: AgentGenome) -> dict[str, torch.Tensor]:
+        cache_key = id(genome)
+        cached = self._param_cache.get(cache_key)
+        if cached is not None and cached[0] is genome:
+            return cached[1]
+        params = {key: self._tensor(value) for key, value in genome.weights.items()}
+        self._param_cache[cache_key] = (genome, params)
+        return params
 
     def carry_capacity(self, genome: AgentGenome) -> float:
         return genome.traits["carry_capacity"]
