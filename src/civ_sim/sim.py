@@ -82,6 +82,7 @@ class Simulation:
         return sim
 
     def reset(self) -> None:
+        torch.manual_seed(self.config.seed)
         self.world = World(self.config)
         self.world.initialize()
         self.agents = {}
@@ -189,7 +190,11 @@ class Simulation:
         else:
             start = -((self.config.initial_home_count - 1) * spacing) // 2
             for index in range(self.config.initial_home_count):
-                home_positions.append((start + index * spacing, 0))
+                x = start + index * spacing
+                y = 0
+                if self.config.initial_home_count >= 3 and index != self.config.initial_home_count // 2:
+                    y = spacing
+                home_positions.append((x, y))
 
         archetypes = tuple(FOUNDER_ARCHETYPES.keys())
         homes = []
@@ -668,7 +673,7 @@ class Simulation:
                 agent.carried_amount = 0.0
                 agent.carried_resource = None
         elif action == ActionType.DEPOSIT and agent.carried_resource is not None:
-            structure = self._inventory_structure_for_direction(agent, direction)
+            structure = self._deposit_structure_for_direction(agent, direction)
             if structure is not None and structure.inventory is not None:
                 amount = min(self.config.deposit_amount, agent.carried_amount)
                 structure.inventory.add(ResourceType(agent.carried_resource), amount)
@@ -770,11 +775,12 @@ class Simulation:
             if agent.home_id is not None:
                 agents_by_home[agent.home_id].append(agent)
 
-        for (_, _), structure in list(self.world.iter_active_structures()):
+        for (world_x, world_y), structure in list(self.world.iter_active_structures()):
             structure.stored_throughput *= 0.92
             structure.processed_throughput *= 0.92
             structure.health -= self.config.structure_decay_rate(structure.kind)
             if structure.inventory is not None and structure.kind == StructureType.WORKSHOP:
+                self._pull_workshop_inputs(world_x, world_y, structure.inventory)
                 craft_batches = min(
                     structure.inventory.wood / self.config.workshop_wood_input,
                     structure.inventory.stone / self.config.workshop_stone_input,
@@ -788,7 +794,6 @@ class Simulation:
                     structure.processed_throughput += output
 
             if structure.inventory is not None and structure.kind == StructureType.HOME:
-                world_x, world_y = self._world_position_of_structure(structure)
                 upkeep_taken = structure.inventory.remove(ResourceType.FOOD, self.config.home_food_upkeep)
                 if upkeep_taken < self.config.home_food_upkeep:
                     structure.health -= self.config.home_starvation_damage
@@ -801,7 +806,7 @@ class Simulation:
                     and structure.inventory.food >= self.config.reproduction_food_threshold
                     and structure.inventory.parts >= self.config.reproduction_parts_threshold
                 ):
-                    positions = self._adjacent_open_tiles(*self._world_position_of_structure(structure))
+                    positions = self._adjacent_open_tiles(world_x, world_y)
                     if positions:
                         parent = self.rng.choice(residents)
                         genome = self.controller.mutate_genome(parent.genome, strength=0.05)
@@ -896,6 +901,40 @@ class Simulation:
         )
         return stats
 
+    def _pull_workshop_inputs(self, world_x: int, world_y: int, inventory: Inventory) -> None:
+        needed = {
+            ResourceType.WOOD: max(0.0, self.config.workshop_wood_input - inventory.wood),
+            ResourceType.STONE: max(0.0, self.config.workshop_stone_input - inventory.stone),
+        }
+        if needed[ResourceType.WOOD] <= 0.0 and needed[ResourceType.STONE] <= 0.0:
+            return
+        radius = max(1, self.config.workshop_resource_radius)
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                if dx == 0 and dy == 0:
+                    continue
+                self._pull_workshop_input_from_tile(world_x + dx, world_y + dy, inventory, needed)
+                if needed[ResourceType.WOOD] <= 0.0 and needed[ResourceType.STONE] <= 0.0:
+                    return
+
+    def _pull_workshop_input_from_tile(
+        self,
+        world_x: int,
+        world_y: int,
+        inventory: Inventory,
+        needed: dict[ResourceType, float],
+    ) -> None:
+        neighbor = self.world.get_structure(world_x, world_y)
+        if neighbor is None or neighbor.inventory is None:
+            return
+        for resource, amount_needed in needed.items():
+            if amount_needed <= 0.0:
+                continue
+            taken = neighbor.inventory.remove(resource, amount_needed)
+            if taken > 0.0:
+                inventory.add(resource, taken)
+                needed[resource] -= taken
+
     def _district_resource_mix(self, world_x: int, world_y: int) -> dict[str, float]:
         totals = defaultdict(float)
         for dx in range(-3, 4):
@@ -933,6 +972,25 @@ class Simulation:
         if structure is None or structure.inventory is None:
             return None
         return structure
+
+    def _deposit_structure_for_direction(self, agent: Agent, direction: Direction):
+        carried = None if agent.carried_resource is None else ResourceType(agent.carried_resource)
+        if carried in {ResourceType.WOOD, ResourceType.STONE}:
+            workshop = self._adjacent_inventory_of_kind(agent, StructureType.WORKSHOP)
+            if workshop is not None:
+                return workshop
+        if carried == ResourceType.FOOD:
+            home = self._adjacent_inventory_of_kind(agent, StructureType.HOME)
+            if home is not None:
+                return home
+        return self._inventory_structure_for_direction(agent, direction)
+
+    def _adjacent_inventory_of_kind(self, agent: Agent, kind: StructureType):
+        for dx, dy in ((0, 0), *CARDINAL_OFFSETS):
+            structure = self.world.get_structure(agent.x + dx, agent.y + dy)
+            if structure is not None and structure.kind == kind and structure.inventory is not None:
+                return structure
+        return None
 
     def _home_structure_for_agent(self, agent: Agent):
         if agent.home_id is None:

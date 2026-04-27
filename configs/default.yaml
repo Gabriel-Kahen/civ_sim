@@ -3,11 +3,11 @@ chunk_size: 16
 observation_radius: 5
 
 initial_active_radius_chunks: 2
-initial_home_count: 2
-initial_home_spacing: 8
-spawn_radius: 3
-initial_agents: 48
-max_agents: 192
+initial_home_count: 3
+initial_home_spacing: 48
+spawn_radius: 6
+initial_agents: 30
+max_agents: 60
 tick_limit: 0
 
 tile_size: 16
@@ -35,7 +35,7 @@ base_energy_decay: 0.035
 carried_energy_decay: 0.006
 founder_energy_decay_scale: 0.32
 founder_support_ticks: 600
-home_support_radius: 7
+home_support_radius: 9
 home_support_energy_threshold: 14.0
 home_support_food_amount: 0.35
 food_energy_gain: 6.5
@@ -52,15 +52,15 @@ pickup_amount: 1.5
 deposit_amount: 2.0
 withdraw_amount: 1.5
 
-home_food_upkeep: 0.24
-home_starvation_damage: 0.035
+home_food_upkeep: 0.1
+home_starvation_damage: 0.02
 home_low_access_damage: 0.015
-reproduction_food_threshold: 22.0
-reproduction_parts_threshold: 4.0
-reproduction_food_cost: 7.0
-reproduction_parts_cost: 1.0
+reproduction_food_threshold: 12.0
+reproduction_parts_threshold: 3.0
+reproduction_food_cost: 2.0
+reproduction_parts_cost: 0.8
 
-seed_home_food: 115.0
+seed_home_food: 120.0
 seed_home_wood: 22.0
 seed_home_stone: 22.0
 seed_home_parts: 48.0
@@ -82,7 +82,7 @@ lineage_color_pool: 256
 
 path_traffic_threshold: 1.5
 storage_hub_threshold: 5.2
-workshop_resource_threshold: 16.0
+workshop_resource_threshold: 0.0
 wall_hazard_threshold: 0.55
 beacon_frontier_min: 0.8
 home_min_distance: 8
@@ -103,9 +103,9 @@ home_resource_radius: 4
 home_surplus_threshold: 55.0
 home_access_threshold: 1.0
 home_competition_radius: 6
-workshop_min_distance: 3
-workshop_resource_radius: 4
-workshop_access_threshold: 0.45
+workshop_min_distance: 10
+workshop_resource_radius: 6
+workshop_access_threshold: 0.0
 
 traffic_decay: 0.985
 path_move_cost: 0.48
@@ -145,7 +145,7 @@ structure_build_costs:
   home:
     parts: 10.0
   workshop:
-    parts: 6.0
+    parts: 4.0
 
 structure_repair_costs:
   path:
