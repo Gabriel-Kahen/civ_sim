@@ -142,14 +142,14 @@ class ControllerRuntime:
         hidden_size = self.hidden_size
         input_size = self.observation_size
         weights = {
-            "gru_weight_ih": (torch.randn(hidden_size * 3, input_size) * 0.12).tolist(),
-            "gru_weight_hh": (torch.randn(hidden_size * 3, hidden_size) * 0.12).tolist(),
-            "gru_bias_ih": (torch.randn(hidden_size * 3) * 0.02).tolist(),
-            "gru_bias_hh": (torch.randn(hidden_size * 3) * 0.02).tolist(),
-            "action_weight": (torch.randn(self.action_size, hidden_size) * 0.15).tolist(),
-            "action_bias": torch.zeros(self.action_size).tolist(),
-            "direction_weight": (torch.randn(self.direction_size, hidden_size) * 0.15).tolist(),
-            "direction_bias": torch.zeros(self.direction_size).tolist(),
+            "gru_weight_ih": torch.randn(hidden_size * 3, input_size) * 0.12,
+            "gru_weight_hh": torch.randn(hidden_size * 3, hidden_size) * 0.12,
+            "gru_bias_ih": torch.randn(hidden_size * 3) * 0.02,
+            "gru_bias_hh": torch.randn(hidden_size * 3) * 0.02,
+            "action_weight": torch.randn(self.action_size, hidden_size) * 0.15,
+            "action_bias": torch.zeros(self.action_size),
+            "direction_weight": torch.randn(self.direction_size, hidden_size) * 0.15,
+            "direction_bias": torch.zeros(self.direction_size),
         }
         traits = {
             name: low + (high - low) * torch.rand(1).item()
@@ -172,17 +172,17 @@ class ControllerRuntime:
         direction_bias[int(Direction.CENTER)] = -0.2
         weights["action_bias"] = action_bias
         weights["direction_bias"] = direction_bias
-        genome.weights = {key: tensor.tolist() for key, tensor in weights.items()}
+        genome.weights = weights
         return genome
 
     def mutate_genome(self, genome: AgentGenome, strength: float = 0.06) -> AgentGenome:
-        weights: dict[str, list] = {}
+        weights: dict[str, torch.Tensor] = {}
         for key, value in genome.weights.items():
             tensor = self._tensor(value)
             noise = torch.randn_like(tensor) * strength
             if tensor.ndim == 1:
                 noise *= 0.5
-            weights[key] = (tensor + noise).tolist()
+            weights[key] = tensor + noise
 
         traits: dict[str, float] = {}
         for name, old_value in genome.traits.items():
@@ -225,6 +225,8 @@ class ControllerRuntime:
         return vector
 
     def _tensor(self, values: list) -> torch.Tensor:
+        if isinstance(values, torch.Tensor):
+            return values if values.dtype == torch.float32 else values.to(dtype=torch.float32)
         return torch.tensor(values, dtype=torch.float32)
 
     def _params_for_genome(self, genome: AgentGenome) -> dict[str, torch.Tensor]:

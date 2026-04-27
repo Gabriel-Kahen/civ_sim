@@ -19,7 +19,7 @@ video_view_width_tiles: 128
 video_view_height_tiles: 128
 video_pixels_per_tile: 8
 output_root: exports
-autosave_path: exports/autosave.json
+autosave_path: exports/autosave.pkl
 
 influence_activation_threshold: 1.5
 influence_radius: 6

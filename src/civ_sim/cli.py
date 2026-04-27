@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     experiment = subparsers.add_parser("experiment")
     _add_common_args(experiment)
     experiment.add_argument("--output", type=Path, default=Path("exports/run"))
-    experiment.add_argument("--save", type=Path, default=Path("exports/run/final_state.json"))
+    experiment.add_argument("--save", type=Path)
 
     return parser
 
@@ -103,6 +103,7 @@ def run_experiment(args) -> None:
     frames_dir = output_dir / "frames"
     maps_dir = output_dir / "maps"
     video_path = output_dir / "animation.mp4"
+    save_path = args.save or output_dir / "final_state.pkl"
     frames_dir.mkdir(parents=True, exist_ok=True)
     maps_dir.mkdir(parents=True, exist_ok=True)
     video_writer = renderer.open_video_writer(video_path, fps=20)
@@ -119,7 +120,7 @@ def run_experiment(args) -> None:
 
     renderer.export_maps(simulation, maps_dir)
     export_metrics(simulation, output_dir)
-    save_simulation(simulation, args.save)
+    save_simulation(simulation, save_path)
     renderer.shutdown()
 
 

@@ -65,8 +65,7 @@ class World:
     def get_chunk_if_loaded(self, chunk_x: int, chunk_y: int) -> Chunk | None:
         return self.active_chunks.get((chunk_x, chunk_y)) or self.dormant_chunks.get((chunk_x, chunk_y))
 
-    def get_chunk_for_tile(self, x: int, y: int, activate: bool = False) -> Chunk:
-        chunk_x, chunk_y = self.chunk_coords(x, y)
+    def _chunk_for_key(self, chunk_x: int, chunk_y: int, activate: bool = False) -> Chunk:
         key = (chunk_x, chunk_y)
         if activate:
             return self.ensure_chunk_active(chunk_x, chunk_y)
@@ -83,42 +82,45 @@ class World:
             self.seed_chunks[key] = seed_chunk
         return seed_chunk
 
+    def get_chunk_for_tile(self, x: int, y: int, activate: bool = False) -> Chunk:
+        chunk_x, chunk_y = self.chunk_coords(x, y)
+        return self._chunk_for_key(chunk_x, chunk_y, activate=activate)
+
+    def chunk_and_local(self, x: int, y: int, activate: bool = False) -> tuple[Chunk, int, int]:
+        size = self.config.chunk_size
+        chunk_x, local_x = divmod(x, size)
+        chunk_y, local_y = divmod(y, size)
+        return self._chunk_for_key(chunk_x, chunk_y, activate=activate), local_x, local_y
+
     def terrain_at(self, x: int, y: int) -> TerrainType:
-        chunk = self.get_chunk_for_tile(x, y, activate=False)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=False)
         return INDEX_TO_TERRAIN[int(chunk.terrain[local_y, local_x])]
 
     def resource_amount_at(self, x: int, y: int) -> float:
-        chunk = self.get_chunk_for_tile(x, y, activate=False)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=False)
         return float(chunk.resource_amount[local_y, local_x])
 
     def resource_quality_at(self, x: int, y: int) -> float:
-        chunk = self.get_chunk_for_tile(x, y, activate=False)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=False)
         return float(chunk.resource_quality[local_y, local_x])
 
     def hazard_at(self, x: int, y: int) -> float:
-        chunk = self.get_chunk_for_tile(x, y, activate=False)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=False)
         return float(chunk.hazard[local_y, local_x])
 
     def modify_resource(self, x: int, y: int, delta: float) -> float:
-        chunk = self.get_chunk_for_tile(x, y, activate=True)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=True)
         current = float(chunk.resource_amount[local_y, local_x])
         updated = max(0.0, current + delta)
         chunk.resource_amount[local_y, local_x] = updated
         return updated - current
 
     def get_structure(self, x: int, y: int) -> Structure | None:
-        chunk = self.get_chunk_for_tile(x, y, activate=False)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=False)
         return chunk.structures.get((local_x, local_y))
 
     def add_structure(self, kind: StructureType, x: int, y: int, lineage_id: int, tick: int) -> Structure:
-        chunk = self.get_chunk_for_tile(x, y, activate=True)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=True)
         inventory = Inventory() if kind in INVENTORY_STRUCTURES else None
         structure = Structure(
             structure_id=self.next_structure_id,
@@ -136,8 +138,7 @@ class World:
         return structure
 
     def remove_structure(self, x: int, y: int) -> Structure | None:
-        chunk = self.get_chunk_for_tile(x, y, activate=False)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=False)
         return chunk.structures.pop((local_x, local_y), None)
 
     def structure_inventory(self, x: int, y: int) -> Inventory | None:
@@ -167,26 +168,22 @@ class World:
         return 1.0
 
     def mark_traffic(self, x: int, y: int, lineage_id: int) -> None:
-        chunk = self.get_chunk_for_tile(x, y, activate=True)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=True)
         chunk.traffic[local_y, local_x] += 1.0
         chunk.lineage_map[local_y, local_x] = lineage_id
 
     def ground_resource_vector(self, x: int, y: int, activate: bool = False) -> np.ndarray:
-        chunk = self.get_chunk_for_tile(x, y, activate=activate)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=activate)
         return chunk.ground_resources[local_y, local_x]
 
     def add_ground_resource(self, x: int, y: int, resource, amount: float) -> float:
-        chunk = self.get_chunk_for_tile(x, y, activate=True)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=True)
         index = RESOURCE_INDEX[resource]
         chunk.ground_resources[local_y, local_x, index] += amount
         return float(chunk.ground_resources[local_y, local_x, index])
 
     def take_ground_resource(self, x: int, y: int, resource, amount: float) -> float:
-        chunk = self.get_chunk_for_tile(x, y, activate=True)
-        local_x, local_y = self.local_coords(x, y)
+        chunk, local_x, local_y = self.chunk_and_local(x, y, activate=True)
         index = RESOURCE_INDEX[resource]
         current = float(chunk.ground_resources[local_y, local_x, index])
         taken = min(current, amount)
@@ -223,6 +220,7 @@ class World:
     def recompute_influence(self, agent_positions: set[tuple[int, int]]) -> dict[str, int]:
         self.influence_tiles = defaultdict(float)
         activated_chunks: set[tuple[int, int]] = set()
+        agent_chunks = {self.chunk_coords(x, y) for x, y in agent_positions}
         for chunk in self.active_chunks.values():
             chunk.frontier_value.fill(0.0)
 
@@ -263,8 +261,7 @@ class World:
         removed_wild = 0
         sleeping_built = 0
         for key, chunk in list(self.active_chunks.items()):
-            has_agents = any(self.chunk_coords(x, y) == key for x, y in agent_positions)
-            if has_agents:
+            if key in agent_chunks:
                 continue
             frontier_max = float(chunk.frontier_value.max())
             if frontier_max >= self.config.dormancy_threshold:

@@ -160,7 +160,7 @@ class SimConfig:
         default_factory=lambda: _structure_values(0.45, 2.0, 2.8, 0.5, 1.0, 2.6, 2.2)
     )
     output_root: Path = field(default_factory=lambda: Path("exports"))
-    autosave_path: Path = field(default_factory=lambda: Path("exports/autosave.json"))
+    autosave_path: Path = field(default_factory=lambda: Path("exports/autosave.pkl"))
 
     @property
     def observation_diameter(self) -> int:

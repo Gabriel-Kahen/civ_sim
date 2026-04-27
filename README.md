@@ -33,6 +33,10 @@ Video exports use the fixed viewport controls in that YAML file
 `video_view_height_tiles`, and `video_pixels_per_tile`) so map expansion does
 not rescale or recenter the output mid-run.
 
+Experiment checkpoints default to binary `.pkl` files because full genomes make
+text JSON snapshots very large. Use `.pkl.gz` for smaller compressed saves, or
+`.json` when a human-readable legacy snapshot is needed.
+
 ## Controls
 
 In sandbox mode:

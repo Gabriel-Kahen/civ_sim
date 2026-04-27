@@ -22,3 +22,9 @@ def test_save_load_round_trip(tmp_path: Path):
     loaded = load_simulation(path)
     assert loaded.current_tick == sim.current_tick
     assert len(loaded.agents) == len(sim.agents)
+
+    binary_path = tmp_path / "state.pkl"
+    save_simulation(sim, binary_path)
+    binary_loaded = load_simulation(binary_path)
+    assert binary_loaded.current_tick == sim.current_tick
+    assert len(binary_loaded.agents) == len(sim.agents)

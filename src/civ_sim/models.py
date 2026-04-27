@@ -113,13 +113,16 @@ class Structure:
 @dataclass(slots=True)
 class AgentGenome:
     hidden_size: int
-    weights: dict[str, list]
+    weights: dict[str, Any]
     traits: dict[str, float]
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "hidden_size": self.hidden_size,
-            "weights": self.weights,
+            "weights": {
+                key: value.tolist() if hasattr(value, "tolist") else value
+                for key, value in self.weights.items()
+            },
             "traits": self.traits,
         }
 
@@ -164,7 +167,11 @@ class Agent:
             "energy": self.energy,
             "carried_resource": self.carried_resource,
             "carried_amount": self.carried_amount,
-            "hidden_state": self.hidden_state,
+            "hidden_state": (
+                self.hidden_state.tolist()
+                if hasattr(self.hidden_state, "tolist")
+                else self.hidden_state
+            ),
             "genome": self.genome.to_dict(),
             "last_move_tick": self.last_move_tick,
             "birth_tick": self.birth_tick,

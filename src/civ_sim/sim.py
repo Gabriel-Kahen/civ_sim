@@ -17,6 +17,10 @@ from civ_sim.constants import (
     DIRECTION_VECTORS,
     HARVESTABLE_TERRAIN_TO_RESOURCE,
     RESOURCE_ORDER,
+    RESOURCE_INDEX,
+    STRUCTURE_INDEX,
+    STRUCTURE_ORDER,
+    TERRAIN_ORDER,
     Direction,
     ResourceType,
     StructureType,
@@ -29,6 +33,16 @@ from civ_sim.world import World
 
 PATCH_CHANNELS = 22
 SELF_FEATURES = 14
+TERRAIN_ONE_HOT = tuple(
+    tuple(1.0 if index == active else 0.0 for index in range(len(TERRAIN_ORDER)))
+    for active in range(len(TERRAIN_ORDER))
+)
+STRUCTURE_ZERO = (0.0,) * len(STRUCTURE_ORDER)
+STRUCTURE_ONE_HOT = {
+    structure: tuple(1.0 if index == STRUCTURE_INDEX[structure] else 0.0 for index in range(len(STRUCTURE_ORDER)))
+    for structure in STRUCTURE_ORDER
+}
+CARDINAL_OFFSETS = tuple(DIRECTION_VECTORS[direction] for direction in CARDINAL_DIRECTIONS)
 
 
 @dataclass(slots=True)
@@ -243,7 +257,7 @@ class Simulation:
             energy=energy,
             carried_resource=None if starting_carried_resource is None else starting_carried_resource.value,
             carried_amount=starting_carried_amount,
-            hidden_state=self.controller.initial_hidden(),
+            hidden_state=torch.zeros(self.controller.hidden_size, dtype=torch.float32),
             genome=genome,
             birth_tick=self.current_tick,
             generation=generation,
@@ -271,10 +285,14 @@ class Simulation:
         agent.action_progress -= 1.0
 
         observation = self._build_observation(agent, occupancy)
-        hidden_state = torch.tensor(agent.hidden_state, dtype=torch.float32)
+        hidden_state = (
+            agent.hidden_state
+            if isinstance(agent.hidden_state, torch.Tensor)
+            else torch.tensor(agent.hidden_state, dtype=torch.float32)
+        )
         controller_output = self.controller.forward(agent.genome, observation, hidden_state)
         action, direction = self._select_action(agent, controller_output, occupancy)
-        agent.hidden_state = controller_output.hidden_state.tolist()
+        agent.hidden_state = controller_output.hidden_state
         moved, born, died, extraction, deliveries = self._execute_action(agent, action, direction)
         local_births += born
         local_deaths += died
@@ -341,6 +359,9 @@ class Simulation:
         radius = self.config.observation_radius
         vision_range = self.controller.vision_range(agent.genome)
         patch: list[float] = []
+        world = self.world
+        chunk_size = world.config.chunk_size
+        chunk_for_key = world._chunk_for_key
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 if max(abs(dx), abs(dy)) > vision_range:
@@ -348,25 +369,22 @@ class Simulation:
                     continue
                 tx = agent.x + dx
                 ty = agent.y + dy
-                terrain = self.world.terrain_at(tx, ty)
-                structure = self.world.get_structure(tx, ty)
-                resource_amount = self.world.resource_amount_at(tx, ty) / 20.0
-                resource_quality = self.world.resource_quality_at(tx, ty) / 2.0
-                hazard = self.world.hazard_at(tx, ty)
-                traffic = 0.0
-                influence = self.world.influence_tiles.get((tx, ty), 0.0) / 5.0
-                ground_total = float(np.sum(self.world.ground_resource_vector(tx, ty))) / 10.0
+                chunk_x, local_x = divmod(tx, chunk_size)
+                chunk_y, local_y = divmod(ty, chunk_size)
+                chunk = chunk_for_key(chunk_x, chunk_y, activate=False)
+                terrain_index = int(chunk.terrain[local_y, local_x])
+                structure = chunk.structures.get((local_x, local_y))
+                resource_amount = float(chunk.resource_amount[local_y, local_x]) / 20.0
+                resource_quality = float(chunk.resource_quality[local_y, local_x]) / 2.0
+                hazard = float(chunk.hazard[local_y, local_x])
+                traffic = float(chunk.traffic[local_y, local_x]) / 10.0
+                influence = world.influence_tiles.get((tx, ty), 0.0) / 5.0
+                ground = chunk.ground_resources[local_y, local_x]
+                ground_total = float(ground[0] + ground[1] + ground[2] + ground[3]) / 10.0
                 structure_health = 0.0 if structure is None else structure.health / structure.max_health
                 structure_inventory = 0.0 if structure is None or structure.inventory is None else structure.inventory.total() / 40.0
-                chunk = self.world.get_chunk_for_tile(tx, ty, activate=False)
-                local_x, local_y = self.world.local_coords(tx, ty)
-                if chunk is not None:
-                    traffic = float(chunk.traffic[local_y, local_x]) / 10.0
-
-                for terrain_type in TerrainType:
-                    patch.append(1.0 if terrain == terrain_type else 0.0)
-                for structure_type in StructureType:
-                    patch.append(1.0 if structure is not None and structure.kind == structure_type else 0.0)
+                patch.extend(TERRAIN_ONE_HOT[terrain_index])
+                patch.extend(STRUCTURE_ZERO if structure is None else STRUCTURE_ONE_HOT[structure.kind])
                 patch.extend(
                     [
                         min(resource_amount, 1.0),
@@ -385,8 +403,11 @@ class Simulation:
         if agent.carried_resource is None:
             carried_one_hot[-1] = 1.0
         else:
-            carried_one_hot[RESOURCE_ORDER.index(ResourceType(agent.carried_resource))] = 1.0
-        current_structure = self.world.get_structure(agent.x, agent.y)
+            carried_one_hot[RESOURCE_INDEX[ResourceType(agent.carried_resource)]] = 1.0
+        current_chunk_x, current_local_x = divmod(agent.x, chunk_size)
+        current_chunk_y, current_local_y = divmod(agent.y, chunk_size)
+        current_chunk = chunk_for_key(current_chunk_x, current_chunk_y, activate=False)
+        current_structure = current_chunk.structures.get((current_local_x, current_local_y))
         structure_health = 0.0 if current_structure is None else current_structure.health / current_structure.max_health
         nearby_agents = sum(
             occupancy[(agent.x + dx, agent.y + dy)]
@@ -401,9 +422,18 @@ class Simulation:
             min(nearby_agents / 8.0, 1.0),
             min(abs(agent.x) / 80.0, 1.0),
             min(abs(agent.y) / 80.0, 1.0),
-            min(self.world.influence_tiles.get((agent.x, agent.y), 0.0) / 5.0, 1.0),
-            min(self.world.hazard_at(agent.x, agent.y), 1.0),
-            min(float(np.sum(self.world.ground_resource_vector(agent.x, agent.y))) / 10.0, 1.0),
+            min(world.influence_tiles.get((agent.x, agent.y), 0.0) / 5.0, 1.0),
+            min(float(current_chunk.hazard[current_local_y, current_local_x]), 1.0),
+            min(
+                float(
+                    current_chunk.ground_resources[current_local_y, current_local_x, 0]
+                    + current_chunk.ground_resources[current_local_y, current_local_x, 1]
+                    + current_chunk.ground_resources[current_local_y, current_local_x, 2]
+                    + current_chunk.ground_resources[current_local_y, current_local_x, 3]
+                )
+                / 10.0,
+                1.0,
+            ),
         ]
         values = patch + carried_one_hot + self_features + self.controller.trait_vector(agent.genome)
         return torch.tensor(values, dtype=torch.float32)
@@ -465,16 +495,16 @@ class Simulation:
         can_carry_more = agent.carried_amount < self.controller.carry_capacity(agent.genome)
         carrying_parts = agent.carried_resource == ResourceType.PARTS.value and agent.carried_amount >= 1.0
 
-        has_build_site = any(self._can_build_on(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets())
+        has_build_site = any(self._can_build_on(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS)
         has_damaged_neighbor = any(
             (structure := self.world.get_structure(agent.x + dx, agent.y + dy)) is not None
             and structure.health < structure.max_health * 0.98
-            for dx, dy in self._cardinal_offsets()
+            for dx, dy in CARDINAL_OFFSETS
         )
 
         mask = {
             ActionType.MOVE: any(
-                self.world.is_passable(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets()
+                self.world.is_passable(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.HARVEST: harvestable and can_carry_more,
             ActionType.PICKUP: bool(np.any(ground_resources > 0.0)) and can_carry_more,
@@ -482,25 +512,25 @@ class Simulation:
             ActionType.DEPOSIT: structure is not None and structure.inventory is not None and agent.carried_resource is not None,
             ActionType.WITHDRAW: structure is not None and structure.inventory is not None and can_carry_more and structure.inventory.total() > 0.0,
             ActionType.BUILD_PATH: carrying_parts and any(
-                self._can_build_path(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets()
+                self._can_build_path(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.BUILD_STORAGE: carrying_parts and any(
-                self._can_build_storage(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets()
+                self._can_build_storage(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.BUILD_BEACON: carrying_parts and any(
-                self._can_build_beacon(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets()
+                self._can_build_beacon(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.BUILD_WALL: carrying_parts and any(
-                self._can_build_wall(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets()
+                self._can_build_wall(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.BUILD_GATE: carrying_parts and any(
-                self._can_build_gate(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets()
+                self._can_build_gate(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.BUILD_HOME: carrying_parts and any(
-                self._can_build_home(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets()
+                self._can_build_home(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.BUILD_WORKSHOP: carrying_parts and any(
-                self._can_build_workshop(agent.x + dx, agent.y + dy) for dx, dy in self._cardinal_offsets()
+                self._can_build_workshop(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.REPAIR: carrying_parts and has_damaged_neighbor,
             ActionType.IDLE: True,
@@ -701,7 +731,7 @@ class Simulation:
                         agent.carried_amount = 0.0
                         agent.carried_resource = None
         elif action == ActionType.GUARD:
-            for dx, dy in self._cardinal_offsets():
+            for dx, dy in CARDINAL_OFFSETS:
                 structure = self.world.get_structure(agent.x + dx, agent.y + dy)
                 if structure is not None and structure.kind in {
                     StructureType.WALL,
@@ -884,8 +914,8 @@ class Simulation:
                 return structure
         return None
 
-    def _cardinal_offsets(self) -> list[tuple[int, int]]:
-        return [DIRECTION_VECTORS[direction] for direction in CARDINAL_DIRECTIONS]
+    def _cardinal_offsets(self) -> tuple[tuple[int, int], ...]:
+        return CARDINAL_OFFSETS
 
     def _can_build_on(self, x: int, y: int) -> bool:
         if not self.world.is_passable(x, y):
