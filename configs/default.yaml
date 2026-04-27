@@ -1,0 +1,173 @@
+seed: 7
+chunk_size: 16
+observation_radius: 5
+
+initial_active_radius_chunks: 2
+initial_home_count: 2
+initial_home_spacing: 8
+spawn_radius: 3
+initial_agents: 48
+max_agents: 192
+tick_limit: 0
+
+tile_size: 16
+fps: 30
+export_every: 50
+video_center_x: 0
+video_center_y: 0
+video_view_width_tiles: 128
+video_view_height_tiles: 128
+video_pixels_per_tile: 8
+output_root: exports
+autosave_path: exports/autosave.json
+
+influence_activation_threshold: 1.5
+influence_radius: 6
+dormancy_threshold: 0.4
+expansion_density_threshold: 3.2
+expansion_min_structures: 18
+
+resource_regen_rate: 0.002
+quality_drift_strength: 0.0008
+hazard_damage_scale: 0.06
+
+base_energy_decay: 0.035
+carried_energy_decay: 0.006
+founder_energy_decay_scale: 0.32
+founder_support_ticks: 600
+home_support_radius: 7
+home_support_energy_threshold: 15.0
+home_support_food_amount: 0.35
+food_energy_gain: 6.5
+carried_food_eat_threshold: 11.0
+structure_food_eat_threshold: 11.0
+max_energy: 30.0
+founder_energy_min: 22.0
+founder_energy_random: 6.0
+founder_carried_parts: 7.0
+offspring_energy: 16.0
+
+harvest_amount: 1.0
+pickup_amount: 1.5
+deposit_amount: 2.0
+withdraw_amount: 1.5
+
+home_food_upkeep: 0.22
+home_starvation_damage: 0.035
+home_low_access_damage: 0.015
+reproduction_food_threshold: 22.0
+reproduction_parts_threshold: 4.0
+reproduction_food_cost: 7.0
+reproduction_parts_cost: 1.0
+
+seed_home_food: 120.0
+seed_home_wood: 24.0
+seed_home_stone: 24.0
+seed_home_parts: 60.0
+seed_ground_cache: 20.0
+new_home_food: 16.0
+
+workshop_parts_output: 2.0
+workshop_wood_input: 1.0
+workshop_stone_input: 1.0
+
+structure_decay_multiplier: 0.55
+build_health_fraction: 0.75
+repair_health_fraction: 0.35
+guard_repair_bonus: 0.18
+anti_stuck_ticks: 12
+
+hidden_size: 32
+lineage_color_pool: 256
+
+path_traffic_threshold: 1.2
+storage_hub_threshold: 4.5
+workshop_resource_threshold: 35.0
+wall_hazard_threshold: 0.55
+beacon_frontier_min: 0.8
+home_min_distance: 8
+
+path_adjacent_settlement_threshold: 1
+storage_min_distance: 4
+storage_crossroads_threshold: 1
+storage_access_threshold: 1.0
+beacon_min_distance: 10
+beacon_traffic_multiplier: 1.2
+wall_min_influence: 0.7
+wall_edge_influence: 0.25
+wall_exposure_threshold: 2
+gate_wall_neighbors_threshold: 2
+gate_path_neighbors_threshold: 1
+home_min_influence: 0.75
+home_resource_radius: 4
+home_surplus_threshold: 55.0
+home_access_threshold: 1.0
+home_competition_radius: 6
+workshop_min_distance: 5
+workshop_resource_radius: 3
+workshop_access_threshold: 0.8
+
+traffic_decay: 0.985
+path_move_cost: 0.55
+forest_move_cost: 1.1
+stone_move_cost: 1.05
+hazard_move_cost: 1.2
+
+structure_health:
+  path: 40.0
+  storage: 120.0
+  beacon: 80.0
+  wall: 130.0
+  gate: 110.0
+  home: 180.0
+  workshop: 140.0
+
+structure_decay:
+  path: 0.003
+  storage: 0.006
+  beacon: 0.006
+  wall: 0.007
+  gate: 0.007
+  home: 0.005
+  workshop: 0.007
+
+structure_build_costs:
+  path:
+    parts: 0.6
+  storage:
+    parts: 5.0
+  beacon:
+    parts: 4.0
+  wall:
+    parts: 4.0
+  gate:
+    parts: 5.0
+  home:
+    parts: 10.0
+  workshop:
+    parts: 8.0
+
+structure_repair_costs:
+  path:
+    parts: 0.15
+  storage:
+    parts: 0.35
+  beacon:
+    parts: 0.3
+  wall:
+    parts: 0.3
+  gate:
+    parts: 0.35
+  home:
+    parts: 0.4
+  workshop:
+    parts: 0.4
+
+influence_strength:
+  path: 0.45
+  storage: 2.0
+  beacon: 2.8
+  wall: 0.5
+  gate: 1.0
+  home: 2.6
+  workshop: 2.2
