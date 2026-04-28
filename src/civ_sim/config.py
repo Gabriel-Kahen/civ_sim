@@ -53,8 +53,8 @@ class SimConfig:
     initial_home_count: int = 3
     initial_home_spacing: int = 48
     spawn_radius: int = 6
-    initial_agents: int = 24
-    max_agents: int = 180
+    initial_agents: int = 10
+    max_agents: int = 100
     tick_limit: int = 0
     tile_size: int = 16
     fps: int = 30

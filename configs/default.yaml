@@ -6,8 +6,8 @@ initial_active_radius_chunks: 2
 initial_home_count: 3
 initial_home_spacing: 48
 spawn_radius: 6
-initial_agents: 24
-max_agents: 180
+initial_agents: 10
+max_agents: 100
 tick_limit: 0
 
 tile_size: 16
