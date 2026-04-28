@@ -94,12 +94,6 @@ class World:
         return (chunk_x, chunk_y) not in self.active_chunks and self._has_active_neighbor(chunk_x, chunk_y)
 
     def can_enter_tile(self, x: int, y: int) -> bool:
-        if self.is_active_tile(x, y):
-            return self.is_passable(x, y)
-        if not self.is_frontier_tile(x, y):
-            return False
-        if self.influence_tiles.get((x, y), 0.0) < self.config.frontier_entry_influence_threshold:
-            return False
         return self.is_passable(x, y)
 
     def activate_tile(self, x: int, y: int) -> None:

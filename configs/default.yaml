@@ -4,7 +4,7 @@ observation_radius: 5
 
 initial_active_radius_chunks: 2
 initial_home_count: 3
-initial_home_spacing: 48
+initial_home_spacing: 18
 spawn_radius: 6
 initial_agents: 10
 max_agents: 100
@@ -14,7 +14,7 @@ tile_size: 16
 fps: 30
 export_every: 50
 video_center_x: 0
-video_center_y: 24
+video_center_y: 9
 video_view_width_tiles: 128
 video_view_height_tiles: 128
 video_pixels_per_tile: 8
@@ -23,7 +23,6 @@ autosave_path: exports/autosave.pkl
 
 influence_activation_threshold: 3.0
 influence_radius: 6
-frontier_entry_influence_threshold: 0.3
 dormancy_threshold: 0.65
 expansion_density_threshold: 8.0
 expansion_min_structures: 120
@@ -38,8 +37,8 @@ founder_energy_decay_scale: 0.22
 founder_support_ticks: 1600
 home_support_radius: 14
 home_support_energy_threshold: 18.0
-home_support_food_amount: 0.18
-home_support_food_reserve: 55.0
+home_support_food_amount: 0.12
+home_support_food_reserve: 95.0
 food_energy_gain: 9.0
 carried_food_eat_threshold: 12.0
 structure_food_eat_threshold: 12.5
@@ -48,30 +47,30 @@ founder_energy_min: 24.0
 founder_energy_random: 5.0
 founder_carried_parts: 7.0
 offspring_energy: 22.0
-agent_min_lifespan: 12000
-agent_max_lifespan: 30000
+agent_min_lifespan: 18000
+agent_max_lifespan: 45000
 
 harvest_amount: 1.0
 pickup_amount: 1.5
-deposit_amount: 2.0
+deposit_amount: 3.0
 withdraw_amount: 1.5
 
-home_food_upkeep: 0.012
-home_starvation_damage: 0.02
-home_low_access_damage: 0.015
+home_food_upkeep: 0.006
+home_starvation_damage: 0.004
+home_low_access_damage: 0.003
 reproduction_food_threshold: 20.0
 reproduction_parts_threshold: 2.5
 reproduction_food_cost: 3.0
 reproduction_parts_cost: 0.5
-home_birth_interval: 45
-opportunistic_deposit_amount: 0.75
+home_birth_interval: 60
+opportunistic_deposit_amount: 1.25
 
-seed_home_food: 260.0
-seed_home_wood: 28.0
-seed_home_stone: 28.0
-seed_home_parts: 80.0
+seed_home_food: 420.0
+seed_home_wood: 34.0
+seed_home_stone: 34.0
+seed_home_parts: 100.0
 seed_ground_cache: 24.0
-new_home_food: 24.0
+new_home_food: 45.0
 
 workshop_parts_output: 2.0
 workshop_wood_input: 1.0

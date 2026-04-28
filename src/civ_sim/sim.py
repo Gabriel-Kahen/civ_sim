@@ -216,7 +216,9 @@ class Simulation:
             ):
                 self.world.add_ground_resource(x + dx, y + dy, resource, self.config.seed_ground_cache)
 
-            per_home = max(1, self.config.initial_agents // max(self.config.initial_home_count, 1))
+            base_founders = max(0, self.config.initial_agents // max(self.config.initial_home_count, 1))
+            extra_founders = 1 if index < self.config.initial_agents % max(self.config.initial_home_count, 1) else 0
+            per_home = max(1, base_founders + extra_founders)
             for founder_index in range(per_home):
                 spawn_positions = self._adjacent_open_tiles(x, y)
                 if not spawn_positions:
