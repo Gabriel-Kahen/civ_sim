@@ -6,8 +6,8 @@ initial_active_radius_chunks: 2
 initial_home_count: 3
 initial_home_spacing: 48
 spawn_radius: 6
-initial_agents: 30
-max_agents: 60
+initial_agents: 24
+max_agents: 120
 tick_limit: 0
 
 tile_size: 16
@@ -21,51 +21,54 @@ video_pixels_per_tile: 8
 output_root: exports
 autosave_path: exports/autosave.pkl
 
-influence_activation_threshold: 2.0
+influence_activation_threshold: 3.0
 influence_radius: 6
-dormancy_threshold: 0.4
-expansion_density_threshold: 5.0
-expansion_min_structures: 32
+dormancy_threshold: 0.65
+expansion_density_threshold: 8.0
+expansion_min_structures: 120
 
-resource_regen_rate: 0.002
+resource_regen_rate: 0.004
 quality_drift_strength: 0.0008
 hazard_damage_scale: 0.06
 
-base_energy_decay: 0.035
-carried_energy_decay: 0.006
-founder_energy_decay_scale: 0.32
-founder_support_ticks: 600
-home_support_radius: 9
-home_support_energy_threshold: 14.0
-home_support_food_amount: 0.35
-food_energy_gain: 6.5
-carried_food_eat_threshold: 10.0
-structure_food_eat_threshold: 10.5
+base_energy_decay: 0.024
+carried_energy_decay: 0.004
+founder_energy_decay_scale: 0.22
+founder_support_ticks: 1600
+home_support_radius: 14
+home_support_energy_threshold: 18.0
+home_support_food_amount: 0.25
+food_energy_gain: 9.0
+carried_food_eat_threshold: 12.0
+structure_food_eat_threshold: 12.5
 max_energy: 30.0
-founder_energy_min: 22.0
-founder_energy_random: 6.0
+founder_energy_min: 24.0
+founder_energy_random: 5.0
 founder_carried_parts: 7.0
-offspring_energy: 16.0
+offspring_energy: 22.0
+agent_min_lifespan: 3500
+agent_max_lifespan: 9000
 
 harvest_amount: 1.0
 pickup_amount: 1.5
 deposit_amount: 2.0
 withdraw_amount: 1.5
 
-home_food_upkeep: 0.1
+home_food_upkeep: 0.025
 home_starvation_damage: 0.02
 home_low_access_damage: 0.015
-reproduction_food_threshold: 12.0
-reproduction_parts_threshold: 3.0
-reproduction_food_cost: 2.0
-reproduction_parts_cost: 0.8
+reproduction_food_threshold: 20.0
+reproduction_parts_threshold: 2.5
+reproduction_food_cost: 3.0
+reproduction_parts_cost: 0.5
+home_birth_interval: 80
 
-seed_home_food: 120.0
-seed_home_wood: 22.0
-seed_home_stone: 22.0
-seed_home_parts: 48.0
-seed_ground_cache: 18.0
-new_home_food: 16.0
+seed_home_food: 260.0
+seed_home_wood: 28.0
+seed_home_stone: 28.0
+seed_home_parts: 80.0
+seed_ground_cache: 24.0
+new_home_food: 24.0
 
 workshop_parts_output: 2.0
 workshop_wood_input: 1.0

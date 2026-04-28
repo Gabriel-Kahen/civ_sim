@@ -86,6 +86,9 @@ class World:
         chunk_x, chunk_y = self.chunk_coords(x, y)
         return self._chunk_for_key(chunk_x, chunk_y, activate=activate)
 
+    def is_active_tile(self, x: int, y: int) -> bool:
+        return self.chunk_coords(x, y) in self.active_chunks
+
     def chunk_and_local(self, x: int, y: int, activate: bool = False) -> tuple[Chunk, int, int]:
         size = self.config.chunk_size
         chunk_x, local_x = divmod(x, size)

@@ -258,7 +258,7 @@ class Simulation:
             y=y,
             home_id=home_id,
             age=0,
-            max_age=int(500 + self.rng.random() * 600),
+            max_age=self.rng.randint(self.config.agent_min_lifespan, self.config.agent_max_lifespan),
             energy=energy,
             carried_resource=None if starting_carried_resource is None else starting_carried_resource.value,
             carried_amount=starting_carried_amount,
@@ -550,10 +550,14 @@ class Simulation:
         if action == ActionType.MOVE:
             return {
                 Direction.CENTER: False,
-                Direction.NORTH: self.world.is_passable(agent.x, agent.y - 1),
-                Direction.EAST: self.world.is_passable(agent.x + 1, agent.y),
-                Direction.SOUTH: self.world.is_passable(agent.x, agent.y + 1),
-                Direction.WEST: self.world.is_passable(agent.x - 1, agent.y),
+                Direction.NORTH: self.world.is_active_tile(agent.x, agent.y - 1)
+                and self.world.is_passable(agent.x, agent.y - 1),
+                Direction.EAST: self.world.is_active_tile(agent.x + 1, agent.y)
+                and self.world.is_passable(agent.x + 1, agent.y),
+                Direction.SOUTH: self.world.is_active_tile(agent.x, agent.y + 1)
+                and self.world.is_passable(agent.x, agent.y + 1),
+                Direction.WEST: self.world.is_active_tile(agent.x - 1, agent.y)
+                and self.world.is_passable(agent.x - 1, agent.y),
             }
 
         if action in {
@@ -626,7 +630,12 @@ class Simulation:
         target_x = agent.x + dx
         target_y = agent.y + dy
 
-        if action == ActionType.MOVE and direction != Direction.CENTER and self.world.is_passable(target_x, target_y):
+        if (
+            action == ActionType.MOVE
+            and direction != Direction.CENTER
+            and self.world.is_active_tile(target_x, target_y)
+            and self.world.is_passable(target_x, target_y)
+        ):
             previous = (agent.x, agent.y)
             agent.x = target_x
             agent.y = target_y
@@ -800,9 +809,12 @@ class Simulation:
                 if self._access_score(world_x, world_y) < 1.0:
                     structure.health -= self.config.home_low_access_damage
                 residents = agents_by_home.get(structure.structure_id, [])
+                birth_interval = max(1, self.config.home_birth_interval)
+                can_birth_this_tick = self.current_tick % birth_interval == structure.structure_id % birth_interval
                 if (
                     len(self.agents) < self.config.max_agents
                     and residents
+                    and can_birth_this_tick
                     and structure.inventory.food >= self.config.reproduction_food_threshold
                     and structure.inventory.parts >= self.config.reproduction_parts_threshold
                 ):

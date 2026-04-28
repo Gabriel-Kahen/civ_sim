@@ -10,6 +10,13 @@ from civ_sim.constants import HARVESTABLE_TERRAIN_TO_RESOURCE, StructureType, Te
 from civ_sim.sim import Simulation
 
 
+def _active_bounds_or_origin(simulation: Simulation) -> tuple[int, int, int, int]:
+    min_x, min_y, max_x, max_y = simulation.world.active_world_bounds()
+    if max_x <= min_x or max_y <= min_y:
+        return (0, 0, 1, 1)
+    return min_x, min_y, max_x, max_y
+
+
 def lineage_color(lineage_id: int) -> tuple[int, int, int]:
     value = (lineage_id * 2654435761) & 0xFFFFFFFF
     return (
@@ -46,7 +53,7 @@ def export_metrics(simulation: Simulation, output_dir: Path, write_metrics_csv: 
 
 
 def road_map(simulation: Simulation) -> np.ndarray:
-    min_x, min_y, max_x, max_y = simulation.world.active_world_bounds()
+    min_x, min_y, max_x, max_y = _active_bounds_or_origin(simulation)
     width = max_x - min_x
     height = max_y - min_y
     grid = np.zeros((height, width), dtype=np.uint8)
@@ -57,7 +64,7 @@ def road_map(simulation: Simulation) -> np.ndarray:
 
 
 def frontier_map(simulation: Simulation) -> np.ndarray:
-    min_x, min_y, max_x, max_y = simulation.world.active_world_bounds()
+    min_x, min_y, max_x, max_y = _active_bounds_or_origin(simulation)
     width = max_x - min_x
     height = max_y - min_y
     grid = np.zeros((height, width, 3), dtype=np.uint8)
@@ -74,7 +81,7 @@ def frontier_map(simulation: Simulation) -> np.ndarray:
 
 
 def lineage_map(simulation: Simulation) -> np.ndarray:
-    min_x, min_y, max_x, max_y = simulation.world.active_world_bounds()
+    min_x, min_y, max_x, max_y = _active_bounds_or_origin(simulation)
     width = max_x - min_x
     height = max_y - min_y
     grid = np.zeros((height, width, 3), dtype=np.uint8)
@@ -91,7 +98,7 @@ def lineage_map(simulation: Simulation) -> np.ndarray:
 
 
 def district_map(simulation: Simulation) -> np.ndarray:
-    min_x, min_y, max_x, max_y = simulation.world.active_world_bounds()
+    min_x, min_y, max_x, max_y = _active_bounds_or_origin(simulation)
     width = max_x - min_x
     height = max_y - min_y
     grid = np.zeros((height, width, 3), dtype=np.uint8)
@@ -175,7 +182,7 @@ def hub_summary(simulation: Simulation) -> list[dict]:
 
 
 def district_summary(simulation: Simulation) -> list[dict]:
-    min_x, min_y, max_x, max_y = simulation.world.active_world_bounds()
+    min_x, min_y, max_x, max_y = _active_bounds_or_origin(simulation)
     districts = []
     block = 6
     for start_y in range(min_y, max_y, block):
