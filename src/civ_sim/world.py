@@ -89,6 +89,23 @@ class World:
     def is_active_tile(self, x: int, y: int) -> bool:
         return self.chunk_coords(x, y) in self.active_chunks
 
+    def is_frontier_tile(self, x: int, y: int) -> bool:
+        chunk_x, chunk_y = self.chunk_coords(x, y)
+        return (chunk_x, chunk_y) not in self.active_chunks and self._has_active_neighbor(chunk_x, chunk_y)
+
+    def can_enter_tile(self, x: int, y: int) -> bool:
+        if self.is_active_tile(x, y):
+            return self.is_passable(x, y)
+        if not self.is_frontier_tile(x, y):
+            return False
+        if self.influence_tiles.get((x, y), 0.0) < self.config.frontier_entry_influence_threshold:
+            return False
+        return self.is_passable(x, y)
+
+    def activate_tile(self, x: int, y: int) -> None:
+        chunk_x, chunk_y = self.chunk_coords(x, y)
+        self.ensure_chunk_active(chunk_x, chunk_y)
+
     def chunk_and_local(self, x: int, y: int, activate: bool = False) -> tuple[Chunk, int, int]:
         size = self.config.chunk_size
         chunk_x, local_x = divmod(x, size)

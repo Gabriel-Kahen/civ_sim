@@ -280,6 +280,7 @@ class Simulation:
         local_deaths = 0
         extraction: dict[ResourceType, float] = defaultdict(float)
         deliveries: dict[ResourceType, float] = defaultdict(float)
+        self._opportunistic_deposit(agent, deliveries)
 
         speed = self.controller.move_speed(agent.genome)
         load_penalty = 1.0 + (agent.carried_amount / max(self.controller.carry_capacity(agent.genome), 1e-6)) * 0.6
@@ -341,7 +342,8 @@ class Simulation:
             and abs(self._world_position_of_structure(support_home)[0] - agent.x) + abs(self._world_position_of_structure(support_home)[1] - agent.y)
             <= self.config.home_support_radius
             and agent.energy < self.config.home_support_energy_threshold
-            and support_home.inventory.food >= self.config.home_support_food_amount
+            and support_home.inventory.food
+            >= self.config.home_support_food_reserve + self.config.home_support_food_amount
         ):
             support_home.inventory.remove(ResourceType.FOOD, self.config.home_support_food_amount)
             agent.energy += self.config.food_energy_gain * self.config.home_support_food_amount
@@ -512,7 +514,7 @@ class Simulation:
 
         mask = {
             ActionType.MOVE: any(
-                self.world.is_passable(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
+                self.world.can_enter_tile(agent.x + dx, agent.y + dy) for dx, dy in CARDINAL_OFFSETS
             ),
             ActionType.HARVEST: harvestable and can_carry_more,
             ActionType.PICKUP: bool(np.any(ground_resources > 0.0)) and can_carry_more,
@@ -550,14 +552,10 @@ class Simulation:
         if action == ActionType.MOVE:
             return {
                 Direction.CENTER: False,
-                Direction.NORTH: self.world.is_active_tile(agent.x, agent.y - 1)
-                and self.world.is_passable(agent.x, agent.y - 1),
-                Direction.EAST: self.world.is_active_tile(agent.x + 1, agent.y)
-                and self.world.is_passable(agent.x + 1, agent.y),
-                Direction.SOUTH: self.world.is_active_tile(agent.x, agent.y + 1)
-                and self.world.is_passable(agent.x, agent.y + 1),
-                Direction.WEST: self.world.is_active_tile(agent.x - 1, agent.y)
-                and self.world.is_passable(agent.x - 1, agent.y),
+                Direction.NORTH: self.world.can_enter_tile(agent.x, agent.y - 1),
+                Direction.EAST: self.world.can_enter_tile(agent.x + 1, agent.y),
+                Direction.SOUTH: self.world.can_enter_tile(agent.x, agent.y + 1),
+                Direction.WEST: self.world.can_enter_tile(agent.x - 1, agent.y),
             }
 
         if action in {
@@ -633,10 +631,10 @@ class Simulation:
         if (
             action == ActionType.MOVE
             and direction != Direction.CENTER
-            and self.world.is_active_tile(target_x, target_y)
-            and self.world.is_passable(target_x, target_y)
+            and self.world.can_enter_tile(target_x, target_y)
         ):
             previous = (agent.x, agent.y)
+            self.world.activate_tile(target_x, target_y)
             agent.x = target_x
             agent.y = target_y
             moved = previous != (agent.x, agent.y)
@@ -947,6 +945,48 @@ class Simulation:
                 inventory.add(resource, taken)
                 needed[resource] -= taken
 
+    def _opportunistic_deposit(self, agent: Agent, deliveries: dict[ResourceType, float]) -> None:
+        if agent.carried_resource is None or agent.carried_amount <= 0.0:
+            return
+        carried = ResourceType(agent.carried_resource)
+        target = self._opportunistic_deposit_target(agent, carried)
+        if target is None or target.inventory is None:
+            return
+        amount = min(self.config.opportunistic_deposit_amount, agent.carried_amount)
+        if amount <= 0.0:
+            return
+        target.inventory.add(carried, amount)
+        target.stored_throughput += amount
+        deliveries[carried] += amount
+        agent.carried_amount -= amount
+        if agent.carried_amount <= 0.0:
+            agent.carried_amount = 0.0
+            agent.carried_resource = None
+
+    def _opportunistic_deposit_target(self, agent: Agent, resource: ResourceType):
+        structures = self._accessible_inventory_structures(agent)
+        if resource == ResourceType.FOOD:
+            homes = [structure for structure in structures if structure.kind == StructureType.HOME]
+            if homes:
+                return min(homes, key=lambda structure: structure.inventory.food if structure.inventory else 0.0)
+            storages = [structure for structure in structures if structure.kind == StructureType.STORAGE]
+            if storages:
+                return storages[0]
+            return None
+        if resource in {ResourceType.WOOD, ResourceType.STONE}:
+            workshops = [structure for structure in structures if structure.kind == StructureType.WORKSHOP]
+            if workshops:
+                return workshops[0]
+            storages = [structure for structure in structures if structure.kind == StructureType.STORAGE]
+            if storages:
+                return storages[0]
+            return None
+        homes = [structure for structure in structures if structure.kind == StructureType.HOME]
+        if homes:
+            return min(homes, key=lambda structure: structure.inventory.parts if structure.inventory else 0.0)
+        storages = [structure for structure in structures if structure.kind == StructureType.STORAGE]
+        return storages[0] if storages else None
+
     def _district_resource_mix(self, world_x: int, world_y: int) -> dict[str, float]:
         totals = defaultdict(float)
         for dx in range(-3, 4):
@@ -1136,7 +1176,8 @@ class Simulation:
                 ty = y + dy
                 if (tx, ty) in occupied:
                     continue
-                if self.world.is_passable(tx, ty) and self.world.get_structure(tx, ty) is None:
+                if self.world.can_enter_tile(tx, ty) and self.world.get_structure(tx, ty) is None:
+                    self.world.activate_tile(tx, ty)
                     positions.append((tx, ty))
         return positions
 
