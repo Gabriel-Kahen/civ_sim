@@ -471,7 +471,7 @@ class Simulation:
         return action, direction
 
     def _sample_from_logits(self, logits: torch.Tensor, count: int):
-        values = logits.detach().cpu().numpy().astype(np.float64)
+        values = np.asarray(logits.detach().cpu().tolist(), dtype=np.float64)
         maximum = float(np.max(values))
         if maximum < -1e8:
             enum_type = ActionType if count == len(ActionType) else Direction

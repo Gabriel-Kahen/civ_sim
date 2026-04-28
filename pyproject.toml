@@ -9,7 +9,7 @@ description = "Persistent chunked 2D settlement simulator with evolving agents."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "numpy>=1.26",
+  "numpy>=1.26,<2",
   "pillow>=10.0",
   "pygame-ce>=2.5.2",
   "PyYAML>=6.0",
