@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import json
+import shutil
+import subprocess
+import time
+from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pygame
+import yaml
 
 from civ_sim.analysis import export_metrics
 from civ_sim.config import SimConfig
@@ -27,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(experiment)
     experiment.add_argument("--output", type=Path, default=Path("exports/run"))
     experiment.add_argument("--save", type=Path)
+    experiment.add_argument("--video-every", type=int, default=1, help="Render one video frame every N simulation ticks.")
+    experiment.add_argument("--checkpoint-every", type=int, default=0, help="Save checkpoint_NNNNNN.pkl every N ticks; 0 disables periodic checkpoints.")
+    experiment.add_argument("--metrics-every", type=int, default=1, help="Append one metrics row every N ticks.")
+    experiment.add_argument("--log-every", type=int, default=100, help="Append a human-readable progress log every N ticks.")
+    experiment.add_argument("--no-video", action="store_true", help="Run headless without writing animation.mp4.")
 
     return parser
 
@@ -102,26 +116,187 @@ def run_experiment(args) -> None:
     output_dir = args.output
     frames_dir = output_dir / "frames"
     maps_dir = output_dir / "maps"
+    checkpoints_dir = output_dir / "checkpoints"
     video_path = output_dir / "animation.mp4"
     save_path = args.save or output_dir / "final_state.pkl"
     frames_dir.mkdir(parents=True, exist_ok=True)
     maps_dir.mkdir(parents=True, exist_ok=True)
-    video_writer = renderer.open_video_writer(video_path, fps=20)
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    _write_run_inputs(args, simulation.config, output_dir)
+    metrics_logger = MetricsLogger(output_dir / "metrics.csv", every=max(1, args.metrics_every))
+    progress_logger = ProgressLogger(output_dir / "run.log", every=max(1, args.log_every))
+    video_every = max(1, args.video_every)
+    video_writer = None if args.no_video else renderer.open_video_writer(video_path, fps=20)
+    started_at = time.perf_counter()
 
     try:
         while simulation.current_tick < args.ticks:
-            simulation.step()
-            frame = renderer.render_video_frame(simulation)
-            video_writer.write(frame)
+            stats = simulation.step()
+            metrics_logger.write(simulation.current_tick, stats.to_dict())
+            progress_logger.write(simulation, started_at)
+            if len(simulation.stats_history) > 1:
+                simulation.stats_history = simulation.stats_history[-1:]
+
+            frame = None
+            if video_writer is not None and simulation.current_tick % video_every == 0:
+                frame = renderer.render_video_frame(simulation)
+                video_writer.write(frame)
             if simulation.current_tick % args.export_every == 0:
+                if frame is None:
+                    frame = renderer.render_video_frame(simulation)
                 pygame.image.save(frame, frames_dir / f"frame_{simulation.current_tick:06d}.png")
+            if args.checkpoint_every and simulation.current_tick % args.checkpoint_every == 0:
+                save_simulation(simulation, checkpoints_dir / f"checkpoint_{simulation.current_tick:09d}.pkl")
     finally:
-        video_writer.close()
+        if video_writer is not None:
+            video_writer.close()
+        metrics_logger.close()
 
     renderer.export_maps(simulation, maps_dir)
-    export_metrics(simulation, output_dir)
+    export_metrics(simulation, output_dir, write_metrics_csv=False)
     save_simulation(simulation, save_path)
     renderer.shutdown()
+
+
+class MetricsLogger:
+    def __init__(self, path: Path, every: int):
+        self.path = path
+        self.every = every
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = self.path.open("w", newline="", encoding="utf-8")
+        self.writer: csv.DictWriter | None = None
+        self.cumulative = {
+            "cumulative_births": 0.0,
+            "cumulative_deaths": 0.0,
+            "cumulative_extraction_food": 0.0,
+            "cumulative_extraction_wood": 0.0,
+            "cumulative_extraction_stone": 0.0,
+            "cumulative_delivered_food": 0.0,
+            "cumulative_delivered_wood": 0.0,
+            "cumulative_delivered_stone": 0.0,
+            "cumulative_delivered_parts": 0.0,
+            "cumulative_frontier_expansion": 0.0,
+            "cumulative_storage_throughput": 0.0,
+            "cumulative_workshop_throughput": 0.0,
+        }
+
+    def write(self, tick: int, stats: dict[str, Any]) -> None:
+        self._update_cumulative(stats)
+        if tick % self.every != 0:
+            return
+        row = {
+            key: value
+            for key, value in stats.items()
+            if not isinstance(value, dict)
+        }
+        row["tick"] = tick
+        row.update(self.cumulative)
+        if self.writer is None:
+            fieldnames = ["tick"] + sorted(key for key in row if key != "tick")
+            self.writer = csv.DictWriter(self.handle, fieldnames=fieldnames)
+            self.writer.writeheader()
+        self.writer.writerow(row)
+        self.handle.flush()
+
+    def close(self) -> None:
+        self.handle.close()
+
+    def _update_cumulative(self, stats: dict[str, Any]) -> None:
+        mapping = {
+            "births": "cumulative_births",
+            "deaths": "cumulative_deaths",
+            "extraction_food": "cumulative_extraction_food",
+            "extraction_wood": "cumulative_extraction_wood",
+            "extraction_stone": "cumulative_extraction_stone",
+            "delivered_food": "cumulative_delivered_food",
+            "delivered_wood": "cumulative_delivered_wood",
+            "delivered_stone": "cumulative_delivered_stone",
+            "delivered_parts": "cumulative_delivered_parts",
+            "frontier_expansion_rate": "cumulative_frontier_expansion",
+            "storage_throughput": "cumulative_storage_throughput",
+            "workshop_throughput": "cumulative_workshop_throughput",
+        }
+        for source, target in mapping.items():
+            self.cumulative[target] += float(stats.get(source, 0.0))
+
+
+class ProgressLogger:
+    def __init__(self, path: Path, every: int):
+        self.path = path
+        self.every = every
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("w", encoding="utf-8") as handle:
+            handle.write(f"started_at={datetime.now(timezone.utc).isoformat()}\n")
+
+    def write(self, simulation: Simulation, started_at: float) -> None:
+        if simulation.current_tick % self.every != 0:
+            return
+        elapsed = time.perf_counter() - started_at
+        latest = simulation.stats_history[-1].to_dict() if hasattr(simulation.stats_history[-1], "to_dict") else simulation.stats_history[-1]
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                " ".join(
+                    (
+                        f"tick={simulation.current_tick}",
+                        f"elapsed_s={elapsed:.2f}",
+                        f"population={latest.get('population')}",
+                        f"active_chunks={latest.get('active_chunks')}",
+                        f"roads={latest.get('road_length')}",
+                        f"homes={latest.get('homes')}",
+                        f"storage={float(latest.get('storage_throughput', 0.0)):.3f}",
+                        f"workshop={float(latest.get('workshop_throughput', 0.0)):.3f}",
+                    )
+                )
+                + "\n"
+            )
+
+
+def _write_run_inputs(args, config: SimConfig, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if args.config and args.config.exists():
+        shutil.copy2(args.config, output_dir / "config.yaml")
+    else:
+        with (output_dir / "config.yaml").open("w", encoding="utf-8") as handle:
+            yaml.safe_dump(_config_payload(config), handle, sort_keys=True)
+    manifest = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "command": {
+            "ticks": args.ticks,
+            "seed": args.seed,
+            "export_every": args.export_every,
+            "video_every": args.video_every,
+            "checkpoint_every": args.checkpoint_every,
+            "metrics_every": args.metrics_every,
+            "log_every": args.log_every,
+            "load": None if args.load is None else str(args.load),
+            "save": None if args.save is None else str(args.save),
+            "no_video": bool(args.no_video),
+        },
+        "git_commit": _git_commit(),
+        "config": _config_payload(config),
+    }
+    with (output_dir / "run_manifest.json").open("w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+
+
+def _config_payload(config: SimConfig) -> dict[str, Any]:
+    return {
+        key: (str(value) if isinstance(value, Path) else value)
+        for key, value in asdict(config).items()
+    }
+
+
+def _git_commit() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip()
 
 
 if __name__ == "__main__":

@@ -37,6 +37,23 @@ Experiment checkpoints default to binary `.pkl` files because full genomes make
 text JSON snapshots very large. Use `.pkl.gz` for smaller compressed saves, or
 `.json` when a human-readable legacy snapshot is needed.
 
+For long experiments, sample video and checkpoint periodically instead of
+rendering every tick:
+
+```bash
+civ-sim experiment \
+  --ticks 100000 \
+  --video-every 25 \
+  --checkpoint-every 10000 \
+  --export-every 1000 \
+  --log-every 500 \
+  --output exports/longrun
+```
+
+Experiment runs write `run_manifest.json`, `config.yaml`, `run.log`, streaming
+`metrics.csv`, sampled video, periodic checkpoints, final maps, and
+`final_state.pkl`.
+
 ## Controls
 
 In sandbox mode:

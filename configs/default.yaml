@@ -14,7 +14,7 @@ tile_size: 16
 fps: 30
 export_every: 50
 video_center_x: 0
-video_center_y: 0
+video_center_y: 24
 video_view_width_tiles: 128
 video_view_height_tiles: 128
 video_pixels_per_tile: 8

@@ -19,18 +19,19 @@ def lineage_color(lineage_id: int) -> tuple[int, int, int]:
     )
 
 
-def export_metrics(simulation: Simulation, output_dir: Path) -> None:
+def export_metrics(simulation: Simulation, output_dir: Path, write_metrics_csv: bool = True) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     stats_path = output_dir / "metrics.csv"
     if not simulation.stats_history:
         return
-    fieldnames = sorted({key for row in simulation.stats_history for key in row.keys() if not isinstance(row[key], dict)})
-    with stats_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in simulation.stats_history:
-            flat = {key: value for key, value in row.items() if key in fieldnames}
-            writer.writerow(flat)
+    if write_metrics_csv:
+        fieldnames = sorted({key for row in simulation.stats_history for key in row.keys() if not isinstance(row[key], dict)})
+        with stats_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in simulation.stats_history:
+                flat = {key: value for key, value in row.items() if key in fieldnames}
+                writer.writerow(flat)
 
     latest = simulation.stats_history[-1]
     with (output_dir / "latest_stats.json").open("w", encoding="utf-8") as handle:
