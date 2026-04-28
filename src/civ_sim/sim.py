@@ -836,6 +836,8 @@ class Simulation:
                         structure.inventory.remove(ResourceType.PARTS, self.config.reproduction_parts_cost)
                         births += 1
 
+            self._maintain_structure(world_x, world_y, structure)
+
             if structure.health <= 0.0:
                 world_x, world_y = self._world_position_of_structure(structure)
                 if structure.inventory is not None:
@@ -946,6 +948,54 @@ class Simulation:
             if taken > 0.0:
                 inventory.add(resource, taken)
                 needed[resource] -= taken
+
+    def _maintain_structure(self, world_x: int, world_y: int, structure) -> None:
+        target_health = structure.max_health * self.config.maintenance_health_threshold
+        if structure.health >= target_health:
+            return
+        health_needed = min(structure.max_health - structure.health, target_health - structure.health)
+        if health_needed <= 0.0:
+            return
+        parts_needed = min(
+            self.config.maintenance_parts_per_tick,
+            health_needed / max(self.config.maintenance_health_per_part, 1e-6),
+        )
+        if parts_needed <= 0.0:
+            return
+        taken = self._take_maintenance_parts(world_x, world_y, structure, parts_needed)
+        if taken <= 0.0:
+            return
+        structure.health = min(
+            structure.max_health,
+            structure.health + taken * self.config.maintenance_health_per_part,
+        )
+
+    def _take_maintenance_parts(self, world_x: int, world_y: int, structure, amount: float) -> float:
+        if structure.inventory is not None and structure.inventory.parts > 0.0:
+            taken = structure.inventory.remove(ResourceType.PARTS, amount)
+            if taken >= amount:
+                return taken
+            amount -= taken
+            total_taken = taken
+        else:
+            total_taken = 0.0
+
+        radius = max(0, self.config.maintenance_inventory_radius)
+        candidates = []
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                neighbor = self.world.get_structure(world_x + dx, world_y + dy)
+                if neighbor is None or neighbor.inventory is None or neighbor.inventory.parts <= 0.0:
+                    continue
+                distance = abs(dx) + abs(dy)
+                candidates.append((distance, neighbor))
+        for _, neighbor in sorted(candidates, key=lambda item: item[0]):
+            taken = neighbor.inventory.remove(ResourceType.PARTS, amount)
+            total_taken += taken
+            amount -= taken
+            if amount <= 0.0:
+                break
+        return total_taken
 
     def _opportunistic_deposit(self, agent: Agent, deliveries: dict[ResourceType, float]) -> None:
         if agent.carried_resource is None or agent.carried_amount <= 0.0:

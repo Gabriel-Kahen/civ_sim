@@ -3,8 +3,10 @@ from __future__ import annotations
 import gzip
 import json
 import pickle
+from dataclasses import fields
 from pathlib import Path
 
+from civ_sim.config import SimConfig
 from civ_sim.sim import Simulation
 
 
@@ -44,17 +46,31 @@ def load_simulation(path: str | Path) -> Simulation:
             simulation = pickle.load(handle)
         if not isinstance(simulation, Simulation):
             raise TypeError(f"pickle did not contain a Simulation: {path}")
-        simulation.controller._param_cache.clear()
-        return simulation
+        return _prepare_loaded_simulation(simulation)
 
     if _is_pickle_path(path):
         with path.open("rb") as handle:
             simulation = pickle.load(handle)
         if not isinstance(simulation, Simulation):
             raise TypeError(f"pickle did not contain a Simulation: {path}")
-        simulation.controller._param_cache.clear()
-        return simulation
+        return _prepare_loaded_simulation(simulation)
 
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
-    return Simulation.from_snapshot(payload)
+    return _prepare_loaded_simulation(Simulation.from_snapshot(payload))
+
+
+def _prepare_loaded_simulation(simulation: Simulation) -> Simulation:
+    _upgrade_config(simulation.config)
+    simulation.world.config = simulation.config
+    simulation.world.generator.config = simulation.config
+    simulation.controller.config = simulation.config
+    simulation.controller._param_cache.clear()
+    return simulation
+
+
+def _upgrade_config(config: SimConfig) -> None:
+    defaults = SimConfig()
+    for field in fields(SimConfig):
+        if not hasattr(config, field.name):
+            setattr(config, field.name, getattr(defaults, field.name))

@@ -80,6 +80,10 @@ structure_decay_multiplier: 0.6
 build_health_fraction: 0.75
 repair_health_fraction: 0.35
 guard_repair_bonus: 0.18
+maintenance_health_threshold: 0.92
+maintenance_parts_per_tick: 0.018
+maintenance_health_per_part: 22.0
+maintenance_inventory_radius: 5
 anti_stuck_ticks: 12
 
 hidden_size: 32

@@ -116,6 +116,10 @@ class SimConfig:
     build_health_fraction: float = 0.75
     repair_health_fraction: float = 0.35
     guard_repair_bonus: float = 0.18
+    maintenance_health_threshold: float = 0.92
+    maintenance_parts_per_tick: float = 0.018
+    maintenance_health_per_part: float = 22.0
+    maintenance_inventory_radius: int = 5
     anti_stuck_ticks: int = 12
     hidden_size: int = 32
     lineage_color_pool: int = 256
