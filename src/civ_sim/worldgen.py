@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,6 +40,8 @@ class WorldGenerator:
         self.region_cell_size = config.chunk_size * 10
         self.patch_cell_size = config.chunk_size * 5
         self.max_patch_radius = 42.0
+        self._region_profile_cache: dict[tuple[int, int], RegionProfile] = {}
+        self._patch_anchor_cache: dict[tuple[int, int], list[PatchAnchor]] = {}
 
     def generate_chunk(self, chunk_x: int, chunk_y: int) -> Chunk:
         size = self.config.chunk_size
@@ -86,6 +89,10 @@ class WorldGenerator:
         return anchors
 
     def _anchors_for_patch_cell(self, patch_cell_x: int, patch_cell_y: int) -> list[PatchAnchor]:
+        cache_key = (patch_cell_x, patch_cell_y)
+        cached = self._patch_anchor_cache.get(cache_key)
+        if cached is not None:
+            return cached
         seed = self.config.seed
         base_x = patch_cell_x * self.patch_cell_size
         base_y = patch_cell_y * self.patch_cell_size
@@ -121,6 +128,7 @@ class WorldGenerator:
                     weight=0.9 + selector * 1.35,
                 )
             )
+        self._patch_anchor_cache[cache_key] = anchors
         return anchors
 
     def _select_anchor_terrain(
@@ -151,8 +159,12 @@ class WorldGenerator:
 
     def _region_profile(self, world_x: float, world_y: float) -> RegionProfile:
         seed = self.config.seed
-        region_x = int(np.floor(world_x / self.region_cell_size))
-        region_y = int(np.floor(world_y / self.region_cell_size))
+        region_x = math.floor(world_x / self.region_cell_size)
+        region_y = math.floor(world_y / self.region_cell_size)
+        cache_key = (region_x, region_y)
+        cached = self._region_profile_cache.get(cache_key)
+        if cached is not None:
+            return cached
         moisture = fractal_noise(seed + 301, region_x, region_y, (4.0, 2.0))
         roughness = fractal_noise(seed + 313, region_x, region_y, (4.0, 2.0))
         fertility = fractal_noise(seed + 317, region_x, region_y, (4.0, 2.0))
@@ -160,19 +172,27 @@ class WorldGenerator:
         selector = hash_float(seed + 337, region_x, region_y)
 
         if danger > 0.72 and roughness > 0.45:
-            return RegionProfile(0.0, 0.28, -0.08, 0.45, 0.22, 0.08, 0.24, 0.06, 0.02, 0.5)
-        if moisture > 0.7 and fertility > 0.46:
-            return RegionProfile(0.22, -0.08, 0.2, -0.15, 0.18, 0.3, 0.05, 0.3, 0.23, 0.02)
-        if roughness > 0.68:
-            return RegionProfile(-0.05, 0.35, -0.04, 0.08, 0.16, 0.1, 0.42, 0.08, 0.05, 0.16)
-        if moisture > 0.6 and selector > 0.55:
-            return RegionProfile(0.25, -0.04, 0.1, -0.05, 0.16, 0.34, 0.04, 0.17, 0.24, 0.02)
-        if fertility > 0.56:
-            return RegionProfile(0.08, -0.08, 0.26, -0.12, 0.26, 0.16, 0.05, 0.32, 0.05, 0.02)
-        return RegionProfile(0.04, 0.02, 0.05, 0.0, 0.34, 0.18, 0.12, 0.14, 0.06, 0.04)
+            profile = RegionProfile(0.0, 0.28, -0.08, 0.45, 0.22, 0.08, 0.24, 0.06, 0.02, 0.5)
+        elif moisture > 0.7 and fertility > 0.46:
+            profile = RegionProfile(0.22, -0.08, 0.2, -0.15, 0.18, 0.3, 0.05, 0.3, 0.23, 0.02)
+        elif roughness > 0.68:
+            profile = RegionProfile(-0.05, 0.35, -0.04, 0.08, 0.16, 0.1, 0.42, 0.08, 0.05, 0.16)
+        elif moisture > 0.6 and selector > 0.55:
+            profile = RegionProfile(0.25, -0.04, 0.1, -0.05, 0.16, 0.34, 0.04, 0.17, 0.24, 0.02)
+        elif fertility > 0.56:
+            profile = RegionProfile(0.08, -0.08, 0.26, -0.12, 0.26, 0.16, 0.05, 0.32, 0.05, 0.02)
+        else:
+            profile = RegionProfile(0.04, 0.02, 0.05, 0.0, 0.34, 0.18, 0.12, 0.14, 0.06, 0.04)
+        self._region_profile_cache[cache_key] = profile
+        return profile
 
     def _macro_value(self, seed: int, world_x: float, world_y: float, bias: float = 0.0) -> float:
-        return np.clip(fractal_noise(seed, world_x, world_y, (140.0, 72.0, 36.0)) + bias, 0.0, 1.0)
+        value = fractal_noise(seed, world_x, world_y, (140.0, 72.0, 36.0)) + bias
+        if value < 0.0:
+            return 0.0
+        if value > 1.0:
+            return 1.0
+        return value
 
     def _score_tile(
         self,
@@ -245,7 +265,7 @@ class WorldGenerator:
         ]
 
     def _apply_starter_bias(self, world_x: int, world_y: int, scores: dict[TerrainType, float]) -> None:
-        distance = float(np.hypot(world_x, world_y))
+        distance = math.hypot(world_x, world_y)
         starter_radius = self.config.chunk_size * 3.2
         if distance >= starter_radius:
             return
@@ -261,20 +281,24 @@ class WorldGenerator:
         smoothed = terrain.copy()
         height, width = terrain.shape
         for _ in range(3):
-            updated = smoothed.copy()
-            for y in range(height):
-                for x in range(width):
-                    counts: dict[int, int] = {}
-                    for ny in range(max(0, y - 1), min(height, y + 2)):
-                        for nx in range(max(0, x - 1), min(width, x + 2)):
-                            tile = int(smoothed[ny, nx])
-                            counts[tile] = counts.get(tile, 0) + 1
-                    current = int(smoothed[y, x])
-                    winner, count = max(counts.items(), key=lambda item: item[1])
-                    if count >= 5:
-                        updated[y, x] = winner
-                    else:
-                        updated[y, x] = current
+            counts_by_terrain = np.zeros((len(TerrainType), height, width), dtype=np.int16)
+            for dy in (-1, 0, 1):
+                source_y_start = max(0, -dy)
+                source_y_end = min(height, height - dy)
+                target_y_start = max(0, dy)
+                target_y_end = min(height, height + dy)
+                for dx in (-1, 0, 1):
+                    source_x_start = max(0, -dx)
+                    source_x_end = min(width, width - dx)
+                    target_x_start = max(0, dx)
+                    target_x_end = min(width, width + dx)
+                    shifted = smoothed[source_y_start:source_y_end, source_x_start:source_x_end]
+                    target = counts_by_terrain[:, target_y_start:target_y_end, target_x_start:target_x_end]
+                    for terrain_index in range(len(TerrainType)):
+                        target[terrain_index] += shifted == terrain_index
+            winner = counts_by_terrain.argmax(axis=0)
+            count = counts_by_terrain.max(axis=0)
+            updated = np.where(count >= 5, winner, smoothed).astype(np.int16, copy=False)
             smoothed = updated
         return smoothed
 
@@ -292,7 +316,7 @@ class WorldGenerator:
             for local_x in range(size):
                 world_x = chunk_x * size + local_x
                 world_y = chunk_y * size + local_y
-                distance = float(np.hypot(world_x, world_y))
+                distance = math.hypot(world_x, world_y)
                 if distance > size * 3.0:
                     continue
                 safety = smoothstep(max(0.0, 1.0 - distance / (size * 3.0)))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -21,6 +22,8 @@ class VideoWriter:
         self.path = Path(path)
         self.size = size
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if shutil.which("ffmpeg") is None:
+            raise RuntimeError("ffmpeg is required for mp4 output; install it or run with --no-video")
         self.process = subprocess.Popen(
             [
                 "ffmpeg",
@@ -87,6 +90,11 @@ class Renderer:
         self.agent_sprite = self._load_agent_sprite()
         self._sprite_cache: dict[int, tuple[dict[TerrainType, pygame.Surface], dict[StructureType, pygame.Surface], pygame.Surface]] = {}
         self._terrain_cache: dict[tuple[WorldBounds, int], pygame.Surface] = {}
+        self._static_layer_cache: dict[tuple[WorldBounds, int, tuple[tuple[int, int, str], ...]], pygame.Surface] = {}
+        self._scratch_surfaces: dict[tuple[int, int], pygame.Surface] = {}
+        self._fixed_video_bounds: WorldBounds | None = None
+        self._fixed_video_size: tuple[int, int] | None = None
+        self._fixed_video_tile_size: int | None = None
         self.overlay_index = 0
 
     def cycle_overlay(self) -> str:
@@ -127,7 +135,11 @@ class Renderer:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         if bounds is None:
-            surface = self.draw(simulation)
+            bounds = simulation.world.active_world_bounds()
+            surface = self._render_world_surface(simulation, bounds, tile_size=self.tile_size)
+            overlay = self.current_overlay()
+            if overlay != "none":
+                self._draw_overlay(surface, simulation, overlay, *bounds)
         else:
             tile_size = self._tile_size_for_output(bounds, output_size)
             surface = self._render_world_surface(
@@ -147,7 +159,7 @@ class Renderer:
     def render_video_frame(self, simulation: Simulation) -> pygame.Surface:
         bounds = self.fixed_video_bounds()
         output_size = self.fixed_video_size()
-        tile_size = self._tile_size_for_output(bounds, output_size)
+        tile_size = self.fixed_video_tile_size()
         surface = self._render_world_surface(
             simulation,
             bounds,
@@ -165,18 +177,29 @@ class Renderer:
         return VideoWriter(path, self.fixed_video_size(), fps=fps)
 
     def fixed_video_bounds(self) -> WorldBounds:
+        if self._fixed_video_bounds is not None:
+            return self._fixed_video_bounds
         width = max(1, self.config.video_view_width_tiles)
         height = max(1, self.config.video_view_height_tiles)
         min_x = self.config.video_center_x - width // 2
         min_y = self.config.video_center_y - height // 2
-        return min_x, min_y, min_x + width, min_y + height
+        self._fixed_video_bounds = (min_x, min_y, min_x + width, min_y + height)
+        return self._fixed_video_bounds
 
     def fixed_video_size(self) -> tuple[int, int]:
+        if self._fixed_video_size is not None:
+            return self._fixed_video_size
         pixels_per_tile = max(1, self.config.video_pixels_per_tile)
-        return (
+        self._fixed_video_size = (
             max(1, self.config.video_view_width_tiles * pixels_per_tile),
             max(1, self.config.video_view_height_tiles * pixels_per_tile),
         )
+        return self._fixed_video_size
+
+    def fixed_video_tile_size(self) -> int:
+        if self._fixed_video_tile_size is None:
+            self._fixed_video_tile_size = self._tile_size_for_output(self.fixed_video_bounds(), self.fixed_video_size())
+        return self._fixed_video_tile_size
 
     def _tile_size_for_output(self, bounds: WorldBounds, output_size: tuple[int, int] | None) -> int:
         if output_size is None:
@@ -199,25 +222,23 @@ class Renderer:
         use_terrain_cache: bool = False,
     ) -> pygame.Surface:
         min_x, min_y, max_x, max_y = bounds
-        width = max(1, max_x - min_x)
-        height = max(1, max_y - min_y)
-        if use_terrain_cache:
-            world_surface = self._cached_terrain_surface(simulation, bounds, tile_size).copy()
+        structure_draws = self._structure_draws(simulation, min_x, min_y, max_x, max_y)
+        if use_terrain_cache and self.config.enable_render_layer_cache:
+            world_surface = self._scratch_copy(
+                self._cached_static_surface(
+                    simulation,
+                    bounds,
+                    tile_size,
+                    structure_draws,
+                )
+            )
+        elif use_terrain_cache:
+            world_surface = self._scratch_copy(self._cached_terrain_surface(simulation, bounds, tile_size))
         else:
             world_surface = self._render_terrain_surface(simulation, bounds, tile_size)
         _, structure_sprites, agent_sprite = self._sprites_for_tile_size(tile_size)
-        structure_draws = [
-            (x, y, structure.kind)
-            for (x, y), structure in simulation.world.iter_loaded_structures()
-            if min_x <= x < max_x and min_y <= y < max_y
-        ]
-
-        for x, y, structure in structure_draws:
-            if structure != StructureType.HOME:
-                self._draw_structure(world_surface, x, y, structure, min_x, min_y, tile_size, structure_sprites)
-        for x, y, structure in structure_draws:
-            if structure == StructureType.HOME:
-                self._draw_structure(world_surface, x, y, structure, min_x, min_y, tile_size, structure_sprites)
+        if not (use_terrain_cache and self.config.enable_render_layer_cache):
+            self._draw_structures(world_surface, structure_draws, min_x, min_y, tile_size, structure_sprites)
 
         for agent in simulation.agents.values():
             if not (min_x <= agent.x < max_x and min_y <= agent.y < max_y):
@@ -234,6 +255,61 @@ class Renderer:
             world_surface.blit(agent_sprite, (pixel_x, pixel_y))
 
         return world_surface
+
+    def _structure_draws(
+        self,
+        simulation: Simulation,
+        min_x: int,
+        min_y: int,
+        max_x: int,
+        max_y: int,
+    ) -> list[tuple[int, int, StructureType]]:
+        return [
+            (x, y, structure.kind)
+            for (x, y), structure in simulation.world.iter_loaded_structures_in_bounds(min_x, min_y, max_x, max_y)
+        ]
+
+    def _scratch_copy(self, source: pygame.Surface) -> pygame.Surface:
+        scratch = self._scratch_surfaces.get(source.get_size())
+        if scratch is None:
+            scratch = pygame.Surface(source.get_size()).convert()
+            self._scratch_surfaces[source.get_size()] = scratch
+        scratch.blit(source, (0, 0))
+        return scratch
+
+    def _cached_static_surface(
+        self,
+        simulation: Simulation,
+        bounds: WorldBounds,
+        tile_size: int,
+        structure_draws: list[tuple[int, int, StructureType]],
+    ) -> pygame.Surface:
+        signature = tuple(sorted((x, y, structure.value) for x, y, structure in structure_draws))
+        key = (bounds, tile_size, signature)
+        surface = self._static_layer_cache.get(key)
+        if surface is None:
+            surface = self._cached_terrain_surface(simulation, bounds, tile_size).copy()
+            _, structure_sprites, _ = self._sprites_for_tile_size(tile_size)
+            self._draw_structures(surface, structure_draws, bounds[0], bounds[1], tile_size, structure_sprites)
+            self._static_layer_cache.clear()
+            self._static_layer_cache[key] = surface
+        return surface
+
+    def _draw_structures(
+        self,
+        surface: pygame.Surface,
+        structure_draws: list[tuple[int, int, StructureType]],
+        min_x: int,
+        min_y: int,
+        tile_size: int,
+        structure_sprites: dict[StructureType, pygame.Surface],
+    ) -> None:
+        for x, y, structure in structure_draws:
+            if structure != StructureType.HOME:
+                self._draw_structure(surface, x, y, structure, min_x, min_y, tile_size, structure_sprites)
+        for x, y, structure in structure_draws:
+            if structure == StructureType.HOME:
+                self._draw_structure(surface, x, y, structure, min_x, min_y, tile_size, structure_sprites)
 
     def _render_terrain_surface(
         self,

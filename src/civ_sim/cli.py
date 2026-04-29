@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -10,14 +11,13 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib import error, request
 
-import pygame
 import yaml
+import torch
 
-from civ_sim.analysis import export_metrics
 from civ_sim.config import SimConfig
 from civ_sim.io import load_simulation, save_simulation
-from civ_sim.render import Renderer
 from civ_sim.sim import Simulation
 
 
@@ -41,6 +41,16 @@ def build_parser() -> argparse.ArgumentParser:
     experiment.add_argument("--metrics-every", type=int, default=1, help="Append one metrics row every N ticks.")
     experiment.add_argument("--log-every", type=int, default=100, help="Append a human-readable progress log every N ticks.")
     experiment.add_argument("--no-video", action="store_true", help="Run headless without writing animation.mp4.")
+    experiment.add_argument("--no-frames", action="store_true", help="Skip sampled PNG frame exports during the run.")
+    experiment.add_argument("--no-maps", action="store_true", help="Skip derived map PNG exports at the end of the run.")
+    experiment.add_argument("--no-analysis", action="store_true", help="Skip final JSON analysis exports.")
+    experiment.add_argument("--no-save", action="store_true", help="Skip final_state.pkl; periodic checkpoints still work.")
+
+    render_checkpoints = subparsers.add_parser("render-checkpoints")
+    render_checkpoints.add_argument("--input", type=Path, required=True, help="Directory containing checkpoint_*.pkl files.")
+    render_checkpoints.add_argument("--output", type=Path, required=True, help="Output mp4 path.")
+    render_checkpoints.add_argument("--fps", type=int, default=20)
+    render_checkpoints.add_argument("--limit", type=int, default=0, help="Maximum checkpoints to render; 0 renders all.")
 
     return parser
 
@@ -60,6 +70,8 @@ def main() -> None:
         run_sandbox(args)
     elif args.command == "experiment":
         run_experiment(args)
+    elif args.command == "render-checkpoints":
+        run_render_checkpoints(args)
 
 
 def _load_or_create(args) -> Simulation:
@@ -72,6 +84,9 @@ def _load_or_create(args) -> Simulation:
 
 
 def run_sandbox(args) -> None:
+    import pygame
+    from civ_sim.render import Renderer
+
     simulation = _load_or_create(args)
     renderer = Renderer(simulation.config)
     clock = pygame.time.Clock()
@@ -111,8 +126,14 @@ def run_sandbox(args) -> None:
 
 
 def run_experiment(args) -> None:
+    pygame = None
+    torch.set_grad_enabled(False)
     simulation = _load_or_create(args)
-    renderer = Renderer(simulation.config, headless=True)
+    needs_renderer = not (args.no_video and args.no_frames and args.no_maps)
+    if needs_renderer:
+        from civ_sim.render import Renderer
+
+    renderer = Renderer(simulation.config, headless=True) if needs_renderer else None
     output_dir = args.output
     frames_dir = output_dir / "frames"
     maps_dir = output_dir / "maps"
@@ -125,6 +146,8 @@ def run_experiment(args) -> None:
     _write_run_inputs(args, simulation.config, output_dir)
     metrics_logger = MetricsLogger(output_dir / "metrics.csv", every=max(1, args.metrics_every))
     progress_logger = ProgressLogger(output_dir / "run.log", every=max(1, args.log_every))
+    extinction_notifier = DiscordExtinctionNotifier.from_environment(output_dir)
+    previous_population = len(simulation.agents)
     video_every = max(1, args.video_every)
     video_writer = None if args.no_video else renderer.open_video_writer(video_path, fps=20)
     started_at = time.perf_counter()
@@ -134,6 +157,9 @@ def run_experiment(args) -> None:
             stats = simulation.step()
             metrics_logger.write(simulation.current_tick, stats.to_dict())
             progress_logger.write(simulation, started_at)
+            if previous_population > 0 and stats.population == 0:
+                extinction_notifier.notify(simulation, stats, started_at)
+            previous_population = stats.population
             if len(simulation.stats_history) > 1:
                 simulation.stats_history = simulation.stats_history[-1:]
 
@@ -141,9 +167,13 @@ def run_experiment(args) -> None:
             if video_writer is not None and simulation.current_tick % video_every == 0:
                 frame = renderer.render_video_frame(simulation)
                 video_writer.write(frame)
-            if simulation.current_tick % args.export_every == 0:
+            if not args.no_frames and simulation.current_tick % args.export_every == 0:
                 if frame is None:
                     frame = renderer.render_video_frame(simulation)
+                if pygame is None:
+                    import pygame as pygame_module
+
+                    pygame = pygame_module
                 pygame.image.save(frame, frames_dir / f"frame_{simulation.current_tick:06d}.png")
             if args.checkpoint_every and simulation.current_tick % args.checkpoint_every == 0:
                 save_simulation(simulation, checkpoints_dir / f"checkpoint_{simulation.current_tick:09d}.pkl")
@@ -152,10 +182,37 @@ def run_experiment(args) -> None:
             video_writer.close()
         metrics_logger.close()
 
-    renderer.export_maps(simulation, maps_dir)
-    export_metrics(simulation, output_dir, write_metrics_csv=False)
-    save_simulation(simulation, save_path)
-    renderer.shutdown()
+    if renderer is not None and not args.no_maps:
+        renderer.export_maps(simulation, maps_dir)
+    if not args.no_analysis:
+        from civ_sim.analysis import export_metrics
+
+        export_metrics(simulation, output_dir, write_metrics_csv=False)
+    if not args.no_save:
+        save_simulation(simulation, save_path)
+    if renderer is not None:
+        renderer.shutdown()
+
+
+def run_render_checkpoints(args) -> None:
+    from civ_sim.render import Renderer
+
+    checkpoint_paths = sorted(args.input.glob("checkpoint_*.pkl"))
+    if args.limit > 0:
+        checkpoint_paths = checkpoint_paths[: args.limit]
+    if not checkpoint_paths:
+        raise ValueError(f"no checkpoint_*.pkl files found in {args.input}")
+    first = load_simulation(checkpoint_paths[0])
+    renderer = Renderer(first.config, headless=True)
+    writer = renderer.open_video_writer(args.output, fps=args.fps)
+    try:
+        writer.write(renderer.render_video_frame(first))
+        for checkpoint_path in checkpoint_paths[1:]:
+            simulation = load_simulation(checkpoint_path)
+            writer.write(renderer.render_video_frame(simulation))
+    finally:
+        writer.close()
+        renderer.shutdown()
 
 
 class MetricsLogger:
@@ -251,6 +308,52 @@ class ProgressLogger:
             )
 
 
+class DiscordExtinctionNotifier:
+    def __init__(self, webhook_url: str | None, output_dir: Path):
+        self.webhook_url = webhook_url
+        self.output_dir = output_dir
+        self.sent = False
+
+    @classmethod
+    def from_environment(cls, output_dir: Path) -> "DiscordExtinctionNotifier":
+        return cls(os.environ.get("CIV_SIM_DISCORD_WEBHOOK_URL"), output_dir)
+
+    def notify(self, simulation: Simulation, stats, started_at: float) -> None:
+        if self.sent:
+            return
+        self.sent = True
+        elapsed = time.perf_counter() - started_at
+        payload = {
+            "content": (
+                "civ_sim extinction: population reached 0 "
+                f"at tick {simulation.current_tick:,}. "
+                f"homes={stats.homes}, roads={stats.road_length}, "
+                f"active_chunks={stats.active_chunks}, "
+                f"elapsed={elapsed / 60.0:.1f} min, "
+                f"output={self.output_dir}"
+            )
+        }
+        if not self.webhook_url:
+            self._write_status("discord_webhook_missing", payload["content"])
+            return
+        data = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            self.webhook_url,
+            data=data,
+            headers={"Content-Type": "application/json", "User-Agent": "civ-sim"},
+            method="POST",
+        )
+        try:
+            with request.urlopen(req, timeout=10) as response:
+                self._write_status(f"discord_notification_sent status={response.status}", payload["content"])
+        except (OSError, error.URLError, error.HTTPError) as exc:
+            self._write_status(f"discord_notification_failed error={exc}", payload["content"])
+
+    def _write_status(self, status: str, message: str) -> None:
+        with (self.output_dir / "run.log").open("a", encoding="utf-8") as handle:
+            handle.write(f"{status} message={json.dumps(message)}\n")
+
+
 def _write_run_inputs(args, config: SimConfig, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     if args.config and args.config.exists():
@@ -271,6 +374,10 @@ def _write_run_inputs(args, config: SimConfig, output_dir: Path) -> None:
             "load": None if args.load is None else str(args.load),
             "save": None if args.save is None else str(args.save),
             "no_video": bool(args.no_video),
+            "no_frames": bool(args.no_frames),
+            "no_maps": bool(args.no_maps),
+            "no_analysis": bool(args.no_analysis),
+            "no_save": bool(args.no_save),
         },
         "git_commit": _git_commit(),
         "config": _config_payload(config),

@@ -18,6 +18,10 @@ video_center_y: 9
 video_view_width_tiles: 128
 video_view_height_tiles: 128
 video_pixels_per_tile: 8
+resource_update_interval: 4
+traffic_decay_interval: 4
+influence_update_interval: 4
+detailed_metrics_interval: 25
 output_root: exports
 autosave_path: exports/autosave.pkl
 
@@ -84,6 +88,7 @@ maintenance_health_threshold: 0.92
 maintenance_parts_per_tick: 0.018
 maintenance_health_per_part: 22.0
 maintenance_inventory_radius: 5
+enable_render_layer_cache: true
 anti_stuck_ticks: 12
 
 hidden_size: 32

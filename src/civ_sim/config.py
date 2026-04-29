@@ -64,6 +64,10 @@ class SimConfig:
     video_view_width_tiles: int = 128
     video_view_height_tiles: int = 128
     video_pixels_per_tile: int = 8
+    resource_update_interval: int = 4
+    traffic_decay_interval: int = 4
+    influence_update_interval: int = 4
+    detailed_metrics_interval: int = 25
     influence_activation_threshold: float = 3.0
     influence_radius: int = 6
     dormancy_threshold: float = 0.65
@@ -120,6 +124,7 @@ class SimConfig:
     maintenance_parts_per_tick: float = 0.018
     maintenance_health_per_part: float = 22.0
     maintenance_inventory_radius: int = 5
+    enable_render_layer_cache: bool = True
     anti_stuck_ticks: int = 12
     hidden_size: int = 32
     lineage_color_pool: int = 256

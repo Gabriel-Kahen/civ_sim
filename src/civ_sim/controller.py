@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
+import numpy as np
 import torch
-import torch.nn.functional as F
 
 from civ_sim.config import SimConfig
 from civ_sim.constants import ActionType, Direction
@@ -126,9 +127,9 @@ FOUNDER_ARCHETYPES = {
 
 @dataclass(slots=True)
 class ControllerOutput:
-    action_logits: torch.Tensor
-    direction_logits: torch.Tensor
-    hidden_state: torch.Tensor
+    action_logits: Any
+    direction_logits: Any
+    hidden_state: Any
 
 
 class ControllerRuntime:
@@ -139,6 +140,8 @@ class ControllerRuntime:
         self.action_size = len(ActionType)
         self.direction_size = len(Direction)
         self._param_cache: dict[int, tuple[AgentGenome, dict[str, torch.Tensor]]] = {}
+        self._numpy_param_cache: dict[int, tuple[AgentGenome, dict[str, np.ndarray]]] = {}
+        self._trait_cache: dict[int, tuple[AgentGenome, tuple[float, ...]]] = {}
 
     def create_random_genome(self) -> AgentGenome:
         hidden_size = self.hidden_size
@@ -195,19 +198,24 @@ class ControllerRuntime:
         return AgentGenome(hidden_size=genome.hidden_size, weights=weights, traits=traits)
 
     def forward(self, genome: AgentGenome, observation: torch.Tensor, hidden_state: torch.Tensor) -> ControllerOutput:
-        params = self._params_for_genome(genome)
-        x = observation
-        h = hidden_state
-        gate_x = F.linear(x, params["gru_weight_ih"], params["gru_bias_ih"])
-        gate_h = F.linear(h, params["gru_weight_hh"], params["gru_bias_hh"])
-        i_r, i_z, i_n = gate_x.chunk(3)
-        h_r, h_z, h_n = gate_h.chunk(3)
-        reset_gate = torch.sigmoid(i_r + h_r)
-        update_gate = torch.sigmoid(i_z + h_z)
-        new_gate = torch.tanh(i_n + reset_gate * h_n)
-        next_hidden = (1.0 - update_gate) * new_gate + update_gate * h
-        action_logits = F.linear(next_hidden, params["action_weight"], params["action_bias"])
-        direction_logits = F.linear(next_hidden, params["direction_weight"], params["direction_bias"])
+        params = self._numpy_params_for_genome(genome)
+        x = observation if isinstance(observation, np.ndarray) else np.asarray(observation, dtype=np.float32)
+        h = hidden_state if isinstance(hidden_state, np.ndarray) else np.asarray(hidden_state, dtype=np.float32)
+        gate_x = params["gru_weight_ih"] @ x + params["gru_bias_ih"]
+        gate_h = params["gru_weight_hh"] @ h + params["gru_bias_hh"]
+        hidden_size = self.hidden_size
+        i_r = gate_x[:hidden_size]
+        i_z = gate_x[hidden_size : hidden_size * 2]
+        i_n = gate_x[hidden_size * 2 :]
+        h_r = gate_h[:hidden_size]
+        h_z = gate_h[hidden_size : hidden_size * 2]
+        h_n = gate_h[hidden_size * 2 :]
+        reset_gate = 1.0 / (1.0 + np.exp(-(i_r + h_r)))
+        update_gate = 1.0 / (1.0 + np.exp(-(i_z + h_z)))
+        new_gate = np.tanh(i_n + reset_gate * h_n)
+        next_hidden = ((1.0 - update_gate) * new_gate + update_gate * h).astype(np.float32, copy=False)
+        action_logits = params["action_weight"] @ next_hidden + params["action_bias"]
+        direction_logits = params["direction_weight"] @ next_hidden + params["direction_bias"]
         return ControllerOutput(
             action_logits=action_logits,
             direction_logits=direction_logits,
@@ -217,14 +225,20 @@ class ControllerRuntime:
     def initial_hidden(self) -> list[float]:
         return [0.0 for _ in range(self.hidden_size)]
 
-    def trait_vector(self, genome: AgentGenome) -> list[float]:
+    def trait_vector(self, genome: AgentGenome) -> tuple[float, ...]:
+        cache_key = id(genome)
+        cached = self._trait_cache.get(cache_key)
+        if cached is not None and cached[0] is genome:
+            return cached[1]
         vector = []
         for name in TRAIT_ORDER:
             low, high = TRAIT_RANGES[name]
             value = genome.traits[name]
             normalized = (value - low) / max(high - low, 1e-6)
             vector.append(normalized * 2.0 - 1.0)
-        return vector
+        result = tuple(vector)
+        self._trait_cache[cache_key] = (genome, result)
+        return result
 
     def _tensor(self, values: list) -> torch.Tensor:
         if isinstance(values, torch.Tensor):
@@ -238,6 +252,18 @@ class ControllerRuntime:
             return cached[1]
         params = {key: self._tensor(value) for key, value in genome.weights.items()}
         self._param_cache[cache_key] = (genome, params)
+        return params
+
+    def _numpy_params_for_genome(self, genome: AgentGenome) -> dict[str, np.ndarray]:
+        cache_key = id(genome)
+        cached = self._numpy_param_cache.get(cache_key)
+        if cached is not None and cached[0] is genome:
+            return cached[1]
+        params = {
+            key: self._tensor(value).detach().cpu().numpy().astype(np.float32, copy=False)
+            for key, value in genome.weights.items()
+        }
+        self._numpy_param_cache[cache_key] = (genome, params)
         return params
 
     def carry_capacity(self, genome: AgentGenome) -> float:

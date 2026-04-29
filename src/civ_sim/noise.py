@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 
 
 def _hash_u32(*values: int) -> int:
@@ -16,6 +17,7 @@ def _hash_u32(*values: int) -> int:
     return state
 
 
+@lru_cache(maxsize=262144)
 def hash_float(seed: int, x: int, y: int, z: int = 0) -> float:
     return _hash_u32(seed, x, y, z) / 0xFFFFFFFF
 
@@ -28,6 +30,7 @@ def lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
 
 
+@lru_cache(maxsize=262144)
 def value_noise(seed: int, x: float, y: float, scale: float) -> float:
     x /= scale
     y /= scale
