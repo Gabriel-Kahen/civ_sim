@@ -6,8 +6,8 @@ initial_active_radius_chunks: 2
 initial_home_count: 3
 initial_home_spacing: 18
 spawn_radius: 6
-initial_agents: 10
-max_agents: 100
+initial_agents: 12
+max_agents: 180
 tick_limit: 0
 
 tile_size: 16
@@ -31,63 +31,63 @@ dormancy_threshold: 0.65
 expansion_density_threshold: 8.0
 expansion_min_structures: 120
 
-resource_regen_rate: 0.006
+resource_regen_rate: 0.009
 quality_drift_strength: 0.0008
 hazard_damage_scale: 0.06
 
-base_energy_decay: 0.024
-carried_energy_decay: 0.004
+base_energy_decay: 0.019
+carried_energy_decay: 0.003
 founder_energy_decay_scale: 0.22
-founder_support_ticks: 1600
-home_support_radius: 14
-home_support_energy_threshold: 18.0
-home_support_food_amount: 0.12
-home_support_food_reserve: 95.0
-food_energy_gain: 9.0
+founder_support_ticks: 2200
+home_support_radius: 20
+home_support_energy_threshold: 22.0
+home_support_food_amount: 0.2
+home_support_food_reserve: 45.0
+food_energy_gain: 11.0
 carried_food_eat_threshold: 12.0
 structure_food_eat_threshold: 12.5
-max_energy: 30.0
+max_energy: 36.0
 founder_energy_min: 24.0
 founder_energy_random: 5.0
-founder_carried_parts: 7.0
-offspring_energy: 22.0
-agent_min_lifespan: 18000
-agent_max_lifespan: 45000
+founder_carried_parts: 9.0
+offspring_energy: 28.0
+agent_min_lifespan: 30000
+agent_max_lifespan: 90000
 
 harvest_amount: 1.0
 pickup_amount: 1.5
 deposit_amount: 3.0
 withdraw_amount: 1.5
 
-home_food_upkeep: 0.006
-home_starvation_damage: 0.004
-home_low_access_damage: 0.003
-reproduction_food_threshold: 20.0
-reproduction_parts_threshold: 2.5
-reproduction_food_cost: 3.0
-reproduction_parts_cost: 0.5
-home_birth_interval: 60
-opportunistic_deposit_amount: 1.25
+home_food_upkeep: 0.004
+home_starvation_damage: 0.002
+home_low_access_damage: 0.0015
+reproduction_food_threshold: 14.0
+reproduction_parts_threshold: 0.8
+reproduction_food_cost: 2.0
+reproduction_parts_cost: 0.2
+home_birth_interval: 35
+opportunistic_deposit_amount: 1.75
 
-seed_home_food: 420.0
-seed_home_wood: 34.0
-seed_home_stone: 34.0
-seed_home_parts: 100.0
-seed_ground_cache: 24.0
-new_home_food: 45.0
+seed_home_food: 650.0
+seed_home_wood: 50.0
+seed_home_stone: 50.0
+seed_home_parts: 180.0
+seed_ground_cache: 36.0
+new_home_food: 90.0
 
-workshop_parts_output: 2.0
-workshop_wood_input: 1.0
-workshop_stone_input: 1.0
+workshop_parts_output: 3.0
+workshop_wood_input: 0.8
+workshop_stone_input: 0.8
 
-structure_decay_multiplier: 0.6
+structure_decay_multiplier: 0.35
 build_health_fraction: 0.75
 repair_health_fraction: 0.35
 guard_repair_bonus: 0.18
 maintenance_health_threshold: 0.92
-maintenance_parts_per_tick: 0.018
-maintenance_health_per_part: 22.0
-maintenance_inventory_radius: 5
+maintenance_parts_per_tick: 0.012
+maintenance_health_per_part: 30.0
+maintenance_inventory_radius: 7
 enable_render_layer_cache: true
 anti_stuck_ticks: 12
 
