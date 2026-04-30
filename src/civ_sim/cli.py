@@ -45,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
     experiment.add_argument("--no-maps", action="store_true", help="Skip derived map PNG exports at the end of the run.")
     experiment.add_argument("--no-analysis", action="store_true", help="Skip final JSON analysis exports.")
     experiment.add_argument("--no-save", action="store_true", help="Skip final_state.pkl; periodic checkpoints still work.")
+    experiment.add_argument(
+        "--stop-on-extinction",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stop the experiment as soon as a nonzero population drops to zero.",
+    )
 
     render_checkpoints = subparsers.add_parser("render-checkpoints")
     render_checkpoints.add_argument("--input", type=Path, required=True, help="Directory containing checkpoint_*.pkl files.")
@@ -159,6 +165,9 @@ def run_experiment(args) -> None:
             progress_logger.write(simulation, started_at)
             if previous_population > 0 and stats.population == 0:
                 extinction_notifier.notify(simulation, stats, started_at)
+            if args.stop_on_extinction and stats.population == 0:
+                progress_logger.write_extinction_stop(simulation, started_at)
+                break
             previous_population = stats.population
             if len(simulation.stats_history) > 1:
                 simulation.stats_history = simulation.stats_history[-1:]
@@ -288,24 +297,28 @@ class ProgressLogger:
     def write(self, simulation: Simulation, started_at: float) -> None:
         if simulation.current_tick % self.every != 0:
             return
+        self._append_progress_line(simulation, started_at)
+
+    def write_extinction_stop(self, simulation: Simulation, started_at: float) -> None:
+        self._append_progress_line(simulation, started_at, prefix="stopped_on_extinction")
+
+    def _append_progress_line(self, simulation: Simulation, started_at: float, prefix: str | None = None) -> None:
         elapsed = time.perf_counter() - started_at
         latest = simulation.stats_history[-1].to_dict() if hasattr(simulation.stats_history[-1], "to_dict") else simulation.stats_history[-1]
+        fields = [
+            f"tick={simulation.current_tick}",
+            f"elapsed_s={elapsed:.2f}",
+            f"population={latest.get('population')}",
+            f"active_chunks={latest.get('active_chunks')}",
+            f"roads={latest.get('road_length')}",
+            f"homes={latest.get('homes')}",
+            f"storage={float(latest.get('storage_throughput', 0.0)):.3f}",
+            f"workshop={float(latest.get('workshop_throughput', 0.0)):.3f}",
+        ]
+        if prefix is not None:
+            fields.insert(0, prefix)
         with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                " ".join(
-                    (
-                        f"tick={simulation.current_tick}",
-                        f"elapsed_s={elapsed:.2f}",
-                        f"population={latest.get('population')}",
-                        f"active_chunks={latest.get('active_chunks')}",
-                        f"roads={latest.get('road_length')}",
-                        f"homes={latest.get('homes')}",
-                        f"storage={float(latest.get('storage_throughput', 0.0)):.3f}",
-                        f"workshop={float(latest.get('workshop_throughput', 0.0)):.3f}",
-                    )
-                )
-                + "\n"
-            )
+            handle.write(" ".join(fields) + "\n")
 
 
 class DiscordExtinctionNotifier:
@@ -378,6 +391,7 @@ def _write_run_inputs(args, config: SimConfig, output_dir: Path) -> None:
             "no_maps": bool(args.no_maps),
             "no_analysis": bool(args.no_analysis),
             "no_save": bool(args.no_save),
+            "stop_on_extinction": bool(args.stop_on_extinction),
         },
         "git_commit": _git_commit(),
         "config": _config_payload(config),
